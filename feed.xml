@@ -1,0 +1,1593 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en_US"><generator uri="https://jekyllrb.com/" version="3.8.6">Jekyll</generator><link href="https://azure.github.io/AppService/feed.xml" rel="self" type="application/atom+xml" /><link href="https://azure.github.io/AppService/" rel="alternate" type="text/html" hreflang="en_US" /><updated>2020-06-29T00:13:11+00:00</updated><id>https://azure.github.io/AppService/feed.xml</id><title type="html">Azure App Service</title><subtitle>Announcements, updates, and release notes from the Azure App Service product team.</subtitle><author><name>Azure App Service</name></author><entry><title type="html">Continuous Deployment for Windows Containers with Azure DevOps</title><link href="https://azure.github.io/AppService/2020/06/25/App-Service-Continuous-Deployment-for-Windows-Containers-with-Azure-DevOps.html" rel="alternate" type="text/html" title="Continuous Deployment for Windows Containers with Azure DevOps" /><published>2020-06-25T00:00:00+00:00</published><updated>2020-06-25T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/06/25/App%20Service%20Continuous%20Deployment%20for%20Windows%20Containers%20with%20Azure%20DevOps</id><content type="html" xml:base="https://azure.github.io/AppService/2020/06/25/App-Service-Continuous-Deployment-for-Windows-Containers-with-Azure-DevOps.html">&lt;p&gt;Azure DevOps enables you to host, build, plan and test your code with complimentary workflows. Using Azure Pipelines as one of these workflows allows you to deploy your application with CI/CD that works with any platform and cloud. A pipeline is defined as a YAML file in the root directory of your repository.&lt;/p&gt;
+
+&lt;p&gt;In this article, we will use Azure Pipelines to deploy a Windows Container application to App Service.  The sample application is already configured to be used in a Windows Container, pushed to a registry, and deployed to App Service. Of course, you can use this guide to add the correct deployment tasks to work with your own application.&lt;/p&gt;
+
+&lt;h2 id=&quot;sample-application&quot;&gt;Sample Application&lt;/h2&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;If you would like to get started with your own application, you can skip to the next section.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;The sample application is a simple task-tracking app built with .NET Framework using Azure SQL for storage.  The project has a workflow file, &lt;em&gt;azure-pipelines.yaml&lt;/em&gt;, that is set up for continuous deployment. You have your choice of using Azure Container Registry (ACR) or Docker Hub for your registry needs (the difference in syntax will be explained below).&lt;/p&gt;
+
+&lt;p&gt;Find the full repository samples for &lt;a href=&quot;https://aka.ms/dotnetframeworkdevops&quot;&gt;.NET Framework&lt;/a&gt; and &lt;a href=&quot;https://aka.ms/dotnetcoredevops&quot;&gt;.NET Core&lt;/a&gt; at these highlighted links.&lt;/p&gt;
+
+&lt;h2 id=&quot;create-resources&quot;&gt;Create Resources&lt;/h2&gt;
+
+&lt;p&gt;Create the following resources. You will need information from each resource that will be used in the pipeline file and stored as a variable. Create your choice of registry (Azure Container Registry or Docker Hub) first since you will need information from there before you can create your App Service.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/container-registry/container-registry-get-started-portal&quot;&gt;Azure Container Registry&lt;/a&gt; &lt;strong&gt;OR&lt;/strong&gt; &lt;a href=&quot;https://hub.docker.com/repository/create&quot;&gt;Docker Hub repository&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/app-service/app-service-web-get-started-windows-container&quot;&gt;App Service (Web App for Container)&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;.NET Framework application with supporting dockerfile in a GitHub repository&lt;/li&gt;
+  &lt;li&gt;Azure SQL Database (Optional)&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&quot;add-a-service-connection&quot;&gt;Add a Service Connection&lt;/h2&gt;
+
+&lt;p&gt;Before you create your pipeline, you should first create your Service Connection since you will be asked to choose and verify your connection when creating your template. A Service Connection will allow you to connect to your registry of choice (ACR or Docker Hub) when using the task templates. When adding a new service connection, choose the &lt;strong&gt;Docker Registry&lt;/strong&gt; option.  The following form will ask you to choose Docker Hub or Azure Container Registry along with pertaining information.  You can create a new Service Connection following the directions &lt;a href=&quot;https://docs.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints?view=azure-devops&amp;amp;tabs=yaml#create-new&quot;&gt;here&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;the-dockerfile&quot;&gt;The Dockerfile&lt;/h2&gt;
+
+&lt;p&gt;The samples below explain the associated Dockerfiles for the .NET Framework and .NET Core sample applications linked above. If creating your own application, use the appropriate Dockerfile below and replace the directory paths to match your application.&lt;/p&gt;
+
+&lt;h3 id=&quot;net-framework&quot;&gt;.NET Framework&lt;/h3&gt;
+
+&lt;p&gt;Your .NET Framework application will work best with a multi-stage build.  This example copies over the necessary project files and packages before it creates the publish files for deployment to Azure.&lt;/p&gt;
+
+&lt;div class=&quot;language-dockerfile highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c&quot;&gt;# Set the base image&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; mcr.microsoft.com/dotnet/framework/sdk:4.8 as build&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; &quot;/src&quot;&lt;/span&gt;
+
+&lt;span class=&quot;c&quot;&gt;# Copy packages to your image and restore them&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; taskapp/taskapp.sln .&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; taskapp/taskapp/taskapp.csproj taskapp/taskapp/taskapp.csproj&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; taskapp/taskapp/packages.config taskapp/taskapp/packages.config&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;nuget restore taskapp/taskapp/packages.config &lt;span class=&quot;nt&quot;&gt;-PackagesDirectory&lt;/span&gt; taskapp/packages
+
+&lt;span class=&quot;c&quot;&gt;# Add files from source to the current directory and publish the deployment files to the folder profile&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; . .&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /src/taskapp/taskapp&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;msbuild taskapp.csproj /p:Configuration&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;Release /m /p:DeployOnBuild&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;true&lt;/span&gt; /p:PublishProfile&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;FolderProfile
+
+&lt;span class=&quot;c&quot;&gt;# Layer the production runtime image&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; mcr.microsoft.com/dotnet/framework/aspnet:4.8-windowsservercore-ltsc2019 as deploy&lt;/span&gt;
+
+&lt;span class=&quot;c&quot;&gt;# Add the publish files into the right directory&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /inetpub/wwwroot&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; --from=build /src/taskapp/taskapp/bin/Release/Publish .&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;net-core&quot;&gt;.NET Core&lt;/h3&gt;
+
+&lt;p&gt;For .NET Core, the nano server base image must be “1809” to be compatible with what Azure currently supports.  Keep in mind this may change in the future.&lt;/p&gt;
+
+&lt;div class=&quot;language-dockerfile highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c&quot;&gt;# Set the base image&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; mcr.microsoft.com/dotnet/core/aspnet:3.1-nanoserver-1809 AS base&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /app&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;EXPOSE&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; 80&lt;/span&gt;
+
+&lt;span class=&quot;c&quot;&gt;# Add the SDK so you can run the dotnet restore and build commands&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; mcr.microsoft.com/dotnet/core/sdk:3.1-nanoserver-1809 AS build&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /src&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; *.csproj ./&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;dotnet restore &lt;span class=&quot;s2&quot;&gt;&quot;taskapp.csproj&quot;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; . .&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; &quot;/src/&quot;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;dotnet build &lt;span class=&quot;s2&quot;&gt;&quot;taskapp.csproj&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-c&lt;/span&gt; Release &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; /app/build
+
+&lt;span class=&quot;c&quot;&gt;# Create the publish files&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; build AS publish&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;dotnet publish &lt;span class=&quot;s2&quot;&gt;&quot;taskapp.csproj&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-c&lt;/span&gt; Release &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; /app/publish
+
+&lt;span class=&quot;c&quot;&gt;# Copy the publish files into the container&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; base AS final&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /app&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; --from=publish /app/publish .&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;ENTRYPOINT&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; [&quot;dotnet&quot;, &quot;taskapp.dll&quot;]&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;create-the-pipeline&quot;&gt;Create the Pipeline&lt;/h2&gt;
+
+&lt;p&gt;Once you have your repository created in Azure DevOps, or imported from GitHub, you can create your pipeline.  On the left menu bar go to &lt;strong&gt;Pipelines&lt;/strong&gt; and click the &lt;strong&gt;Create Pipeline&lt;/strong&gt; button.  The next screen will ask you where the code is to create the pipeline from.  We already have our code imported, so we can choose &lt;strong&gt;Azure Repos Git&lt;/strong&gt; to select your current repository.&lt;/p&gt;
+
+&lt;p&gt;Since we are using Docker containers we can choose the &lt;strong&gt;Docker&lt;/strong&gt; template that allows us to build and push an image to Azure Container Registry or Docker Hub.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/devops_1.jpg&quot; alt=&quot;Azure DevOps&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Choose your &lt;em&gt;subscription&lt;/em&gt; that you will be pushing your resources to, then pick your &lt;em&gt;Container registry&lt;/em&gt; on the following screen.  You will notice your Image Name and Dockerfile are pre-populated with a suggested name and path to your Dockerfile.  You can leave those as is, and click on the &lt;strong&gt;Validate and configure&lt;/strong&gt; button to generate your azure-pipeline.yaml file.&lt;/p&gt;
+
+&lt;h2 id=&quot;secure-secrets-with-variables&quot;&gt;Secure Secrets with Variables&lt;/h2&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;Variables are only accessible after your create the pipeline.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Since we are using sensitive information that you don’t want others to access, we will use variables to protect our information. Create a variable by following the directions &lt;a href=&quot;https://docs.microsoft.com/en-us/azure/devops/pipelines/process/variables?view=azure-devops&amp;amp;tabs=yaml%2Cbatch&quot;&gt;here&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;To add a Variable, you click the &lt;strong&gt;Variables&lt;/strong&gt; button next to the &lt;em&gt;Save&lt;/em&gt; button in the top-right of the editing view for your pipeline.  Select the &lt;strong&gt;New Variable&lt;/strong&gt; button and enter your information.  Add the variables below with your own secrets appropriate from each resource.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;imageRepository&lt;/code&gt;: image-name&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;containerRegistry&lt;/code&gt;: ‘your-registry-name.azurecr.io’ OR ‘your-docker-hub-registry-name’&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;applicationName&lt;/code&gt;: app-name&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;azureSQLConnectionString&lt;/code&gt;: database-connection-string (Optional)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;build-the-pipeline&quot;&gt;Build the Pipeline&lt;/h2&gt;
+
+&lt;p&gt;Once you have the necessary variables, you can start to add the tasks you need to complete the pipeline. Below is an explanation of the Docker tasks that were added to your pipeline from the Docker template with the addition of using Docker Hub instead of ACR.  The additional tasks to deploy to your App Service and optional Azure SQL follow.&lt;/p&gt;
+
+&lt;h3 id=&quot;build-and-push-your-image-to-a-registry&quot;&gt;Build and push your image to a registry&lt;/h3&gt;
+
+&lt;p&gt;After your pipeline is generated from choosing the Docker configured template, you’ll notice a few things in the YAML build.  The first is the &lt;em&gt;trigger&lt;/em&gt;, which determines what sets off the build.  We are using any push or change to master as a trigger here, but you can change it to trigger on another branch as well.
+The resource is anything used by the pipeline that lives outside of it like a repository or container registry. You can leave this as &lt;code class=&quot;highlighter-rouge&quot;&gt;self&lt;/code&gt; since we are using our own repository. Your image type is included and the build stages &amp;amp; task follow.&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;# The branch that triggers the pipeline to start building&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;trigger&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;master&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# The source used by the pipeline&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;resources&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;repo&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;self&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Variables used in the Azure Container Registry deployment&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;variables&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;# Container registry service connection established during pipeline creation&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;dockerRegistryServiceConnection&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;lt;your-service-connection-number'&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;dockerfilePath&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(Build.SourcesDirectory)/taskapp/taskapp/Dockerfile'&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;tag&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(Build.BuildId)'&lt;/span&gt;
+  
+  &lt;span class=&quot;c1&quot;&gt;# Agent VM image name&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;vmImageName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;windows-latest'&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Build stage to build your application and push it to a registry&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;stages&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;stage&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and push stage&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;jobs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;  
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;job&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;pool&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;vmImage&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(vmImageName)&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;steps&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;task&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Docker@2&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and push an image to container registry&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;inputs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;command&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;buildAndPush&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;repository&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(imageRepository)&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;dockerfile&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(dockerfilePath)&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;containerRegistry&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(dockerRegistryServiceConnection)&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;tags&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;|&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;$(tag)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Double check that your vmImageName = ‘windows-latest’ as it might default to ‘ubuntu-latest’.&lt;/p&gt;
+
+&lt;p&gt;Next, add the &lt;em&gt;buildContext&lt;/em&gt; below to make sure that necessary application files are being copied over to the image file system.  If you forget this line, you will run into an error that can’t find the path inside of your Dockerfile build.&lt;/p&gt;
+
+&lt;h3 id=&quot;azure-container-registry&quot;&gt;Azure Container Registry&lt;/h3&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;task&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Docker@2&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and push an image to container registry&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;inputs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;command&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;buildAndPush&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;repository&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(imageRepository)&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;dockerfile&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(dockerfilePath)&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;containerRegistry&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(dockerRegistryServiceConnection)&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;buildContext&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;.'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;tags&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;|&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;$(tag)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;docker-hub&quot;&gt;Docker Hub&lt;/h3&gt;
+
+&lt;p&gt;If you are using Docker Hub, your parameters will already have the buildContext added.  However, you may want to add the &lt;em&gt;tags&lt;/em&gt; parameter at the end to keep track of which build was sent&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;      &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;task&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Docker@2&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and Push&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;inputs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+          &lt;span class=&quot;na&quot;&gt;command&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;buildAndPush'&lt;/span&gt;
+          &lt;span class=&quot;na&quot;&gt;repository&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(containerRegistry)/$(imageRepository)'&lt;/span&gt;
+          &lt;span class=&quot;na&quot;&gt;dockerfile&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(Build.SourcesDirectory)/taskapp/taskapp/Dockerfile'&lt;/span&gt;
+          &lt;span class=&quot;na&quot;&gt;containerRegistry&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(dockerRegistryServiceConnection)'&lt;/span&gt;
+          &lt;span class=&quot;na&quot;&gt;buildContext&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;.'&lt;/span&gt;
+            &lt;span class=&quot;na&quot;&gt;tags&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;|&lt;/span&gt;
+              &lt;span class=&quot;s&quot;&gt;$(tag)&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;You can now hit &lt;strong&gt;Save&lt;/strong&gt; and &lt;strong&gt;Run&lt;/strong&gt; to start the pipeline build.  Head over to the Azure portal, where your container registry is, and verify that your image repository name is in the registry repository.&lt;/p&gt;
+
+&lt;h3 id=&quot;setup-the-deploy-stage&quot;&gt;Setup the Deploy Stage&lt;/h3&gt;
+
+&lt;p&gt;Our first stage was pre-populated by the Docker task assistant as our Build stage.  We can split the deployment process in half here by adding our Deploy stage.  This is done by using the first part of our yaml file and repurposing it to include our deployment tasks.  Add in the following code to define a second stage in your pipeline.&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;# Deploy stage to your App Service and Azure SQL Database&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;stage&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy to App Service and Azure SQL&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;jobs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;job&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;pool&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;vmImage&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(vmImageName)&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;steps&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;deploy-to-azure-app-service&quot;&gt;Deploy to Azure App Service&lt;/h3&gt;
+
+&lt;p&gt;Now that you have your image pushed to your registry and your deploy stage setup.  You can push the container to App Service.  If you haven’t already created your App Service in the Azure portal, you’ll need to do so now before you can proceed.&lt;/p&gt;
+
+&lt;p&gt;Once you have your App Service created in Azure, you can edit your pipeline to include the deployment to your App Service.  Click the assistant in the top right corner of the file and search for &lt;strong&gt;Azure Web App for Containers&lt;/strong&gt;.  This task enables you to push a Windows or Linux container to your Azure App Service.  You can learn more about how the task works &lt;a href=&quot;https://github.com/Microsoft/azure-pipelines-tasks/blob/master/Tasks/AzureWebAppContainerV1/README.md&quot;&gt;here&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/devops_2.jpg&quot; alt=&quot;Azure DevOps&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Choose your subscription from the drop down menu and click the authorize button (Note: if authorize returns an error, you may need to add a Service Connection as stated before).  Now you can add your &lt;em&gt;App name&lt;/em&gt;, which should be populated in the drop down, and &lt;em&gt;Image name&lt;/em&gt;, which is in the format of  “&lt;registryname&gt;.azurecr.io/&lt;imagename&gt;:$(tag)&quot;.  Do not fill out the bottom two parameters Configuration File and Startup command.  These are not necessary for what is needed.&lt;/imagename&gt;&lt;/registryname&gt;&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;Parameter&lt;/th&gt;
+      &lt;th style=&quot;text-align: center&quot;&gt;Value&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Azure subscription:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;your-subscription-name&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;App name:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;your-app-name&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Image name:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;registryname.azurecr.io/imagename:$(tag)&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Configuration File:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;X&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Startup command:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;X&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;The &lt;em&gt;registry name&lt;/em&gt; information can be found in the Overview tab of you registry resource blade, and the &lt;em&gt;image name&lt;/em&gt; can be found in the Repositories tab in the registry resource as well.  We are using the DevOps variable $(tag) so it builds with the latest buildId everytime the task is ran.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/devops_3.jpg&quot; alt=&quot;Azure DevOps&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Now you can save your edited pipeline and get the following output below.  You can test that it works by pushing up a change from your code and checking that your App Service will have an updated tag number in the &lt;em&gt;Container Settings&lt;/em&gt; tab as well as your application changes in your deployed application.&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;task&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;AzureWebAppContainer@1&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;inputs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;azureSubscription&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&amp;lt;your-subscription-name&amp;gt;'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;appName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(applicationName)'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;containers&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(containerRegistry)/$(imageRepository):$(tag)'&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;If you run into the following error during your build: &lt;em&gt;“This pipeline needs permissions to access a resource before this run can continue to Build and push stage”&lt;/em&gt;. Click the &lt;strong&gt;View&lt;/strong&gt; button on the error and &lt;strong&gt;Permit&lt;/strong&gt; button on the following screen to allow the build to continue.&lt;/p&gt;
+
+&lt;h2 id=&quot;deploy-to-an-azure-sql-databse-optional&quot;&gt;Deploy to an Azure SQL Databse (Optional)&lt;/h2&gt;
+
+&lt;p&gt;Adding Azure SQL to the workflow is optional of course, as you might have other plans for storage.  To deploy your SQL database to Azure, you will use a &lt;a href=&quot;https://docs.microsoft.com/sql/relational-databases/data-tier-applications/data-tier-applications?view=sql-server-ver15#dac-concepts&quot;&gt;dacpac&lt;/a&gt; file or SQL scripts, and a connection string. The connection string can be found in the overview page of your Azure SQL database and you can create your dacpac by extracting the data using something like SQL Server Object Explorer in Visual Studio.&lt;/p&gt;
+
+&lt;p&gt;If you need to import a SQL database that you’d like to host on Azure, you have the option to add in the &lt;strong&gt;Azure SQL Database deployment&lt;/strong&gt; task which can be found in the assistant we used earlier.  Enter the following values for the parameters.&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;Parameter&lt;/th&gt;
+      &lt;th style=&quot;text-align: center&quot;&gt;Value&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Azure Service Connection Type:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;Azure Resource Manager&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Azure Subscription:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;your-subscription-name&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;strong&gt;SQL Database&lt;/strong&gt;&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Authentication Type:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;Connection String&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Connection String:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;your-connection-string&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;strong&gt;Deployment Package&lt;/strong&gt;&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Deploy Type:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;SQL DACPAC File&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Action:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;Publish&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;DACPAC File:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;$(Build.SourcesDirectory)/your-file-name.dacpac&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Additional SQLPackage.exe Arguments:&lt;/td&gt;
+      &lt;td style=&quot;text-align: center&quot;&gt;X&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;Once created with the above parameters, the output should show as below.&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;task&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;SqlAzureDacpacDeployment@1&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;inputs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;azureSubscription&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;your-subscription-name'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;AuthenticationType&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;connectionString'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;ConnectionString&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(azureSQLConnectionString)'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;deployType&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;DacpacTask'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;DeploymentAction&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;Publish'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;DacpacFile&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(Build.SourcesDirectory)/data.dacpac'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;IpDetectionMethod&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;AutoDetect'&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h4 id=&quot;connection-string&quot;&gt;Connection String&lt;/h4&gt;
+
+&lt;p&gt;Our sample app has a dummy connection string in the web.config that will need to be changed for local testing or can be added into your application settings from your App Service as a &lt;em&gt;Connection String&lt;/em&gt; setting in the &lt;em&gt;Configuration&lt;/em&gt; tab.  Make sure the connection string name in the web.config file matches the connection string name in your App Service setting, with the actual connection string added as the value in your settings.  For more information on how to do this see this &lt;a href=&quot;https://docs.microsoft.com/en-us/azure/app-service/configure-common&quot;&gt;link&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;When adding the values for the SQL Database parameters, you’ll want to choose &lt;em&gt;Connection String&lt;/em&gt; as your Authentication Type and add in your connection string.  We’ll use Variables in DevOps to hide our connection string in safe keeping.&lt;/p&gt;
+
+&lt;h3 id=&quot;creating-a-dacpac-file-in-your-project&quot;&gt;Creating a dacpac file in your project&lt;/h3&gt;
+
+&lt;p&gt;As mentioned before, you’ll need to use either a dacpac file or set of SQL scripts to deploy your database schema.  If you are using Visual Studio, it’s easy to create and add the needed dacpac file to run the action.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;Connect your SQL Azure Database to Visual Studio&lt;/li&gt;
+  &lt;li&gt;Right-click the data base and choose &lt;em&gt;Extract Data-tier application&lt;/em&gt;&lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;On the following window, choose the location at the same level of your github workflow file and click create.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/githubactions_5.jpg&quot; alt=&quot;ghactions&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;Your dacpac file should have been created and added to your project. The action finds your file under the dacpac-package parameter seen above.&lt;/p&gt;
+
+&lt;h2 id=&quot;summary&quot;&gt;Summary&lt;/h2&gt;
+
+&lt;p&gt;From here you are setup to continuously build your Windows Container application through Azure DevOps. Below you’ll see the final result of the workflow yaml file.&lt;/p&gt;
+
+&lt;h3 id=&quot;full-workflow-file&quot;&gt;Full workflow file&lt;/h3&gt;
+&lt;p&gt;The previous sections showed how to assemble the workflow step-by-step. The full &lt;code class=&quot;highlighter-rouge&quot;&gt;azure-pipelines.yaml&lt;/code&gt; is below.&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;na&quot;&gt;trigger&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;master&lt;/span&gt;
+
+&lt;span class=&quot;na&quot;&gt;resources&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;repo&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;self&lt;/span&gt;
+
+&lt;span class=&quot;na&quot;&gt;variables&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;# Container registry service connection established during pipeline creation&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;dockerRegistryServiceConnection&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;your-auto-populated-service-connection-number'&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;azureSubscriptionName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;your-azure-subscription-name'&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;dockerfilePath&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(Build.SourcesDirectory)/taskapp/taskapp/Dockerfile'&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;tag&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(Build.BuildId)'&lt;/span&gt;
+  
+  &lt;span class=&quot;c1&quot;&gt;# Agent VM image name&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;vmImageName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;windows-latest'&lt;/span&gt;
+
+&lt;span class=&quot;na&quot;&gt;stages&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;stage&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and push stage&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;jobs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;  
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;job&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;pool&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;vmImage&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(vmImageName)&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;steps&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;task&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Docker@2&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and push an image to container registry&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;inputs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;command&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;buildAndPush&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;repository&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(imageRepository)'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;dockerfile&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(dockerfilePath)&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;containerRegistry&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(dockerRegistryServiceConnection)'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;buildContext&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;.&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;tags&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;|&lt;/span&gt;
+          &lt;span class=&quot;s&quot;&gt;$(tag)&lt;/span&gt;
+  
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;stage&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy to App Service and Azure SQL&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;jobs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;job&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;displayName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;pool&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;vmImage&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;$(vmImageName)&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;steps&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;task&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;AzureWebAppContainer@1&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;inputs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;azureSubscription&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(azureSubscriptionName)'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;appName&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(applicationName)'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;containers&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(containerRegistry)/$(imageRepository):$(tag)'&lt;/span&gt;
+
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;task&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;SqlAzureDacpacDeployment@1&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;inputs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;azureSubscription&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(azureSubscriptionName)'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;AuthenticationType&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;connectionString'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;ConnectionString&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(azureSQLConnectionString)'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;deployType&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;DacpacTask'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;DeploymentAction&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;Publish'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;DacpacFile&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;$(Build.SourcesDirectory)/data.dacpac'&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;IpDetectionMethod&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;AutoDetect'&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;helpful-resources&quot;&gt;Helpful Resources:&lt;/h2&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://azure.microsoft.com/en-us/overview/what-is-devops/&quot;&gt;Azure DevOps Overview&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/en-us/azure/devops/pipelines/?view=azure-devops&quot;&gt;Azure Pipelines Docs&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/en-us/azure/app-service/app-service-web-get-started-windows-container&quot;&gt;Creating a Web App for Container&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/en-us/azure/container-registry/container-registry-get-started-portal&quot;&gt;Creating an Azure Container Registry&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content><author><name>Azure App Service</name></author><category term="dotnet" /><category term="windows containers" /><summary type="html">Azure DevOps enables you to host, build, plan and test your code with complimentary workflows. Using Azure Pipelines as one of these workflows allows you to deploy your application with CI/CD that works with any platform and cloud. A pipeline is defined as a YAML file in the root directory of your repository.</summary></entry><entry><title type="html">New Log Types for Azure Monitor Integration</title><link href="https://azure.github.io/AppService/2020/06/25/New-Logs-Available-for-Azure-Monitor-Integration.html" rel="alternate" type="text/html" title="New Log Types for Azure Monitor Integration" /><published>2020-06-25T00:00:00+00:00</published><updated>2020-06-25T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/06/25/New-Logs-Available-for-Azure-Monitor-Integration</id><content type="html" xml:base="https://azure.github.io/AppService/2020/06/25/New-Logs-Available-for-Azure-Monitor-Integration.html">&lt;p&gt;We have recently added two new log types to our &lt;a href=&quot;https://azure.github.io/AppService/2019/11/01/App-Service-Integration-with-Azure-Monitor.html&quot;&gt;preview of App Service’s Integration with Azure Monitor&lt;/a&gt;. The two new log types are:&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;AppServiceIPSecAuditLogs&lt;/li&gt;
+  &lt;li&gt;AppServicePlatformLogs&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;To learn more about how to set up your Diagnostic Settings, refer to our &lt;a href=&quot;https://azure.github.io/AppService/2019/11/01/App-Service-Integration-with-Azure-Monitor.html#create-a-diagnostic-setting&quot;&gt;previous announcement blog post&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;what-are-these-new-logs&quot;&gt;What are these new logs?&lt;/h2&gt;
+
+&lt;h3 id=&quot;appserviceipsecauditlogs-linux-and-windows&quot;&gt;AppServiceIPSecAuditLogs (Linux and Windows)&lt;/h3&gt;
+
+&lt;p&gt;This log will show requests made to an web app if there were any &lt;a href=&quot;https://docs.microsoft.com/en-us/azure/app-service/app-service-ip-restrictions&quot;&gt;IP access restriction rules&lt;/a&gt; created. It will provide information such as the host, client IP, result, and the matching rule. This is available for both Linux and Windows web apps.&lt;/p&gt;
+
+&lt;p&gt;As an example, if a user created an IP rule to only allow access from a certain IP range, and there was a request made to the app from an IP outside of the allowed IP range, the log will show the IP of the request and which rule denied the request. Similar results will show for requests made from allowed IP ranges.&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;At the time of writing, this log type can only be sent to a Storage Account. Future updates will be made to allow this log type to go to Log Analytics.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h3 id=&quot;appserviceplatformlogs-linux-only&quot;&gt;AppServicePlatformLogs (Linux only)&lt;/h3&gt;
+
+&lt;p&gt;This log type shows the output of the Docker commands used to manage your container. If you look at your Linux web app’s file system, the &lt;code class=&quot;highlighter-rouge&quot;&gt;LogFiles&lt;/code&gt; directory contains two kinds of log files with the following formats:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;YYYY_MM_DD_RDXXXXXXXXX_default_docker.log&lt;/code&gt;: This is the equivalent of &lt;em&gt;AppServiceConsoleLogs&lt;/em&gt; on the file system&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;YYYY_MM_DD_RDXXXXXXXX_docker.log&lt;/code&gt;: This is the equivalent of &lt;em&gt;AppServicePlatformLogs&lt;/em&gt; on the file system&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;This log will have the contents of the &lt;code class=&quot;highlighter-rouge&quot;&gt;YYYY_MM_DD_RDXXXXXXXX_docker.log&lt;/code&gt;. It will contain logs such as &lt;code class=&quot;highlighter-rouge&quot;&gt;starting container for site...&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;docker run...&lt;/code&gt;, output from the &lt;code class=&quot;highlighter-rouge&quot;&gt;docker pull&lt;/code&gt; command, etc.&lt;/p&gt;
+
+&lt;h2 id=&quot;current-state-of-all-logs-types&quot;&gt;Current State of All Logs Types&lt;/h2&gt;
+
+&lt;p&gt;The table below shows the latest availability for the log categories on Windows and Linux.&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;Log Name&lt;/th&gt;
+      &lt;th&gt;Windows&lt;/th&gt;
+      &lt;th&gt;Linux&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;AppServiceConsoleLogs&lt;/td&gt;
+      &lt;td&gt;TBA&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;AppServiceHTTPLogs&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;AppServiceEnvironmentPlatformLogs&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;AppServiceAuditLogs&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;AppServiceFileAuditLogs&lt;/td&gt;
+      &lt;td&gt;✔️ &lt;sup&gt;1&lt;/sup&gt;&lt;/td&gt;
+      &lt;td&gt;TBA&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;AppServiceAppLogs&lt;/td&gt;
+      &lt;td&gt;TBA&lt;/td&gt;
+      &lt;td&gt;✔️ &lt;sup&gt;2&lt;/sup&gt;&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;AppServiceIPSecLogs&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;AppServicePlatformLogs&lt;/td&gt;
+      &lt;td&gt;TBA&lt;/td&gt;
+      &lt;td&gt;✔️&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;&lt;sup&gt;1&lt;/sup&gt; Supported only on Premium, PremiumV2 and Isolated App Service Plans&lt;/p&gt;
+
+&lt;p&gt;&lt;sup&gt;2&lt;/sup&gt; Supported on Java SE and Tomcat&lt;/p&gt;</content><author><name>Azure App Service</name></author><category term="monitoring" /><summary type="html">We have recently added two new log types to our preview of App Service’s Integration with Azure Monitor. The two new log types are:</summary></entry><entry><title type="html">General Availability of Linux Hybrid Connections</title><link href="https://azure.github.io/AppService/2020/06/17/General-Availability-of-Linux-Hybrid-Connections.html" rel="alternate" type="text/html" title="General Availability of Linux Hybrid Connections" /><published>2020-06-17T00:00:00+00:00</published><updated>2020-06-17T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/06/17/General%20Availability%20of%20Linux%20Hybrid%20Connections</id><content type="html" xml:base="https://azure.github.io/AppService/2020/06/17/General-Availability-of-Linux-Hybrid-Connections.html">&lt;p&gt;We are happy to announce Hybrid Connections for Linux apps is now Generally Available. Hybrid Connections have been available for Windows apps for a few years and is now available for Linux apps as well. Hybrid Connections enables your apps to access TCP endpoints in any network that can make outbound calls to Azure.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/hybrid-connections-linux.png&quot; alt=&quot;Hybrid Connections high level&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Hybrid Connections don’t enable an alternate capability to access your application (for that you should look at &lt;a href=&quot;https://docs.microsoft.com/azure/private-link/private-endpoint-overview&quot;&gt;Private Endpoints&lt;/a&gt;). As used in App Service, each Hybrid Connection matches to a single TCP host and port combination. This means that the Hybrid Connection endpoint can be a TCP endpoint on any operating system and any application. There is no awareness in the feature for any application protocols that are used, it simply provides network access. You can make calls to SQL, a web service, or any other TCP socket.&lt;/p&gt;
+
+&lt;p&gt;Other integration technologies rely on VPN solutions to connect on-premises systems to the cloud. Hybrid Connections reduce overhad and provide direct access to resources without an inbound firewall hole or gateway. The feature is built on top of Azure Relay. It works by you installing a relay agent on a Windows server 2012 or better host. This relay agent, the Hybrid Connection Manager (HCM), must be able to make outbound calls to Azure over port 443 and be able to reach the desired endpoint.&lt;/p&gt;
+
+&lt;p&gt;The feature depends on DNS name lookups to work. In order to ensure that things work, you should use domain names in your Hybrid Connections rather than IP addresses. The DNS name does not need to be in public DNS. It only needs to resolve from the hosts where the HCM is running.&lt;/p&gt;
+
+&lt;p&gt;Due to the nature of how Hybrid Connections works, it is a great solution when others do not fit directly. It provides the fastest way to do dev/test from on-premises in the cloud. The feature is supported in Basic, Standard, Premiumv2 and Isolated App Service plans. For more details around Hybrid Connections, start with &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/app-service-hybrid-connections&quot;&gt;App Service Hybrid Connections&lt;/a&gt;&lt;/p&gt;</content><author><name>Azure App Service</name></author><category term="networking" /><summary type="html">We are happy to announce Hybrid Connections for Linux apps is now Generally Available. Hybrid Connections have been available for Windows apps for a few years and is now available for Linux apps as well. Hybrid Connections enables your apps to access TCP endpoints in any network that can make outbound calls to Azure.</summary></entry><entry><title type="html">General Availability of VNet Integration for Linux Web Apps</title><link href="https://azure.github.io/AppService/2020/06/17/General-Availability-of-VNet-Integration-with-Linux-Web-Apps.html" rel="alternate" type="text/html" title="General Availability of VNet Integration for Linux Web Apps" /><published>2020-06-17T00:00:00+00:00</published><updated>2020-06-17T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/06/17/General%20Availability%20of%20VNet%20Integration%20with%20Linux%20Web%20Apps</id><content type="html" xml:base="https://azure.github.io/AppService/2020/06/17/General-Availability-of-VNet-Integration-with-Linux-Web-Apps.html">&lt;p&gt;Regional VNet Integration is now Generally Available for both Linux and Windows apps. The feature behaves the same for apps on either operating system. This means that your Linux apps can make calls into Resource Manager VNets in the same region. You can filter outbound calls with &lt;a href=&quot;https://docs.microsoft.com/archive/blogs/igorpag/azure-network-security-groups-nsg-best-practices-and-lessons-learned&quot;&gt;Network Security Groups&lt;/a&gt; (NSGs). You can route traffic with Route Tables (UDRs). You can also access resources that are secured with &lt;a href=&quot;https://docs.microsoft.com/azure/virtual-network/virtual-network-service-endpoints-overview&quot;&gt;Service Endpoints&lt;/a&gt; or &lt;a href=&quot;https://docs.microsoft.com/azure/private-link/private-endpoint-overview&quot;&gt;Private Endpoints&lt;/a&gt;. Regional VNet Integration supports hub-and-spoke configurations and reaching across ExpressRoute.&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/app-service/web-sites-integrate-with-vnet&quot;&gt;Try the new Regional VNet Integration today!&lt;/a&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;The public preview for Regional VNet Integration on Linux had a problem with port conflicts and custom containers. That problem has been solved in the GA release. You no longer need to worry about port conflicts with custom containers.&lt;/p&gt;
+
+&lt;p&gt;If you integrate your app with your VNet, the default behavior remains as it was. You would only be able to reach RFC1918 addresses (&lt;code class=&quot;highlighter-rouge&quot;&gt;10.0.0.0/8&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;172.16.0.0/12&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;192.168.0.0/16&lt;/code&gt;) and service endpoints. Just like with Windows, the feature now supports outbound calls into the VNet on &lt;strong&gt;non&lt;/strong&gt;-RFC1918 addresses as well. To reach all addresses you need to set the app setting &lt;code class=&quot;highlighter-rouge&quot;&gt;WEBSITE_VNET_ROUTE_ALL&lt;/code&gt; to &lt;code class=&quot;highlighter-rouge&quot;&gt;1&lt;/code&gt;, your app will then enable all of the outbound traffic from your app to be subject to NSGs and UDRs. This is the same behavior as seen with Windows web apps.&lt;/p&gt;
+
+&lt;p&gt;These new changes enable you to:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Access non-RFC1918 endpoints through your VNet&lt;/li&gt;
+  &lt;li&gt;Secure all outbound traffic leaving your web app&lt;/li&gt;
+  &lt;li&gt;Force tunnel all outbound traffic to a network appliance of your own choosing&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/02/vnetint-regionalworks.png&quot; alt=&quot;Regional VNet Integration architecture&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Regional VNet integration is available in all public regions now for for Windows Webapps and Linux Webapps. To use Regional VNet Integration, your Webapp must be in a Standard, Premium, PremiumV2 or Elastic Premium App Service plan. Regional VNet Integration only applies to outbound calls made by your Webapps, it does not enable private access to your apps. The older, gateway-required VNet Integration is not supported for Linux apps. This does mean that there isn’t a solution to integrate your Linux apps directly with VNets in other regions or with Classic VNets&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;For more information about regional VNet Integration, see &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/web-sites-integrate-with-vnet&quot;&gt;App Service VNet Integration&lt;/a&gt;.&lt;/li&gt;
+  &lt;li&gt;For more information about App Service networking features in general, see &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/networking-features&quot;&gt;App Service networking features&lt;/a&gt;.&lt;/li&gt;
+&lt;/ul&gt;</content><author><name>Azure App Service</name></author><category term="networking" /><summary type="html">Regional VNet Integration is now Generally Available for both Linux and Windows apps. The feature behaves the same for apps on either operating system. This means that your Linux apps can make calls into Resource Manager VNets in the same region. You can filter outbound calls with Network Security Groups (NSGs). You can route traffic with Route Tables (UDRs). You can also access resources that are secured with Service Endpoints or Private Endpoints. Regional VNet Integration supports hub-and-spoke configurations and reaching across ExpressRoute.</summary></entry><entry><title type="html">Continuous Deployment for Windows Containers with GitHub Actions</title><link href="https://azure.github.io/AppService/2020/06/09/App-Service-Continuous-Deployment-for-Windows-Containers-with-GitHub-Actions.html" rel="alternate" type="text/html" title="Continuous Deployment for Windows Containers with GitHub Actions" /><published>2020-06-09T00:00:00+00:00</published><updated>2020-06-09T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/06/09/App%20Service%20Continuous%20Deployment%20for%20Windows%20Containers%20with%20GitHub%20Actions</id><content type="html" xml:base="https://azure.github.io/AppService/2020/06/09/App-Service-Continuous-Deployment-for-Windows-Containers-with-GitHub-Actions.html">&lt;p&gt;Github Actions enables you to easily automate any part of your development workflow. GitHub Actions are defined as YAML files in the &lt;code class=&quot;highlighter-rouge&quot;&gt;.github/workflows&lt;/code&gt; directory of your repository. The workflows are triggered by an event, such as a push to a specific branch, a commit or comment on a pull request, or on a CRON schedule.&lt;/p&gt;
+
+&lt;p&gt;In this article, we will use GitHub Actions for Azure to deploy a Windows Container application to App Service. The sample application is already configured to be used in a Windows Container, pushed to a registry, and deployed to App Service. Of course, you can use this guide to add the correct deployment tasks to work with your own applications.&lt;/p&gt;
+
+&lt;h2 id=&quot;sample-application&quot;&gt;Sample Application&lt;/h2&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;If you would like to get started with your own application, you can skip to the next section.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;The sample application is a simple task-tracking app built with .NET Framework using Azure SQL for storage.  The project has a workflow file, &lt;em&gt;main.yaml&lt;/em&gt;, that is set up for continuous deployment. You have your choice of using Azure Container Registry (ACR) or Docker Hub for your registry needs (the difference in syntax will be explained below).&lt;/p&gt;
+
+&lt;p&gt;Find the full repository samples for &lt;a href=&quot;https://aka.ms/dotnetframeworkdeployment&quot;&gt;.NET Framework&lt;/a&gt; and &lt;a href=&quot;https://aka.ms/dotnetcoredeployment&quot;&gt;.NET Core&lt;/a&gt; at these highlighted links.&lt;/p&gt;
+
+&lt;h2 id=&quot;create-resources&quot;&gt;Create Resources&lt;/h2&gt;
+
+&lt;p&gt;Create the following resources. You will need information from each resource that will be used in the file and stored in your secrets. Create your choice of registry (Azure Container Registry or Docker Hub) first since you will need information from there before you can create your App Service.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;Azure Container Registry OR Docker Hub repository&lt;/li&gt;
+  &lt;li&gt;App Service (Web App for Container)&lt;/li&gt;
+  &lt;li&gt;.NET Framework application with supporting dockerfile in a GitHub repository&lt;/li&gt;
+  &lt;li&gt;Azure SQL Database (Optional)&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;create-a-service-principal&quot;&gt;Create a Service Principal&lt;/h3&gt;
+
+&lt;p&gt;Our workflow will use a Service Principal to authenticate with Azure when deploying the container to App Service. A service principal is an Active Directory Identity created for use with automation scenarios, such as GitHub Actions.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;Run the following command in Azure CLI in powershell to get the credentials needed to run the login action.  The output of this command will be a collection of key value pairs that you’ll need to add to your GitHub secrets.&lt;/p&gt;
+
+    &lt;div class=&quot;language-shell highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; az ad sp create-for-rbac &lt;span class=&quot;nt&quot;&gt;--name&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&amp;lt;appservice-name&amp;gt;&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;--role&lt;/span&gt; contributor &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+   &lt;span class=&quot;nt&quot;&gt;--scopes&lt;/span&gt; /subscriptions/&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;subscription-id&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;/resourceGroups/&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;resource-group&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;se&quot;&gt;\&lt;/span&gt;
+   &lt;span class=&quot;nt&quot;&gt;--sdk-auth&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;    &lt;/div&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Copy the output into your GitHub secrets to use as your &lt;code class=&quot;highlighter-rouge&quot;&gt;AZURE_CREDENTIALS&lt;/code&gt; secret.&lt;/p&gt;
+
+    &lt;div class=&quot;language-json highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;w&quot;&gt;   &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;nl&quot;&gt;&quot;clientId&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;&amp;lt;GUID&amp;gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;nl&quot;&gt;&quot;clientSecret&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;&amp;lt;GUID&amp;gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;nl&quot;&gt;&quot;subscriptionId&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;&amp;lt;GUID&amp;gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+     &lt;/span&gt;&lt;span class=&quot;nl&quot;&gt;&quot;tenantId&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;w&quot;&gt; &lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;&amp;lt;GUID&amp;gt;&quot;&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+   &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;w&quot;&gt;
+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;    &lt;/div&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&quot;secure-secrets&quot;&gt;Secure Secrets&lt;/h2&gt;
+
+&lt;p&gt;Since we are using sensitive information that you don’t want others to access, we will use GitHub secrets to protect our information. Create a secret by following the directions &lt;a href=&quot;https://help.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets&quot;&gt;here&lt;/a&gt;.  Add the github secrets variables below with your own secrets appropriate from each resource.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;APP_NAME&lt;/code&gt;: web-app-name&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;AZURE_CREDENTIALS&lt;/code&gt;: the JSON output of the &lt;code class=&quot;highlighter-rouge&quot;&gt;az ad sp create-for-rbac&lt;/code&gt; command&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;IMAGE_NAME&lt;/code&gt;: name-of-image&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;CONTAINER_REGISTRY_USERNAME&lt;/code&gt;: Your container registry username&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;CONTAINER_REGISTRY_PASSWORD&lt;/code&gt;: Your container registry password&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;CONTAINER_NAME&lt;/code&gt;: The hostname of the container registry (ACR only)&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;AZURE_SQL_CONNECTION_STRING&lt;/code&gt;: database-connection-string&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;DATABASE_SERVER_NAME&lt;/code&gt;: server-name&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;the-dockerfile&quot;&gt;The Dockerfile&lt;/h2&gt;
+
+&lt;p&gt;The samples below explain the associated Dockerfiles for the .NET Framework and .NET Core sample applications linked above.  If creating your own application, use the appropriate Dockerfile below and replace the directory paths to match your application.&lt;/p&gt;
+
+&lt;h3 id=&quot;net-framework&quot;&gt;.NET Framework&lt;/h3&gt;
+
+&lt;p&gt;.NET Framework applications will work best with a multi-stage build.  This example copies over the necessary project files and packages before it creates the publish files for deployment to Azure.&lt;/p&gt;
+
+&lt;div class=&quot;language-dockerfile highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c&quot;&gt;# Set the base image&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; mcr.microsoft.com/dotnet/framework/sdk:4.8 as build&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; &quot;/src&quot;&lt;/span&gt;
+
+&lt;span class=&quot;c&quot;&gt;# Copy packages to your image and restore them&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; taskapp/taskapp.sln .&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; taskapp/taskapp/taskapp.csproj taskapp/taskapp/taskapp.csproj&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; taskapp/taskapp/packages.config taskapp/taskapp/packages.config&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;nuget restore taskapp/taskapp/packages.config &lt;span class=&quot;nt&quot;&gt;-PackagesDirectory&lt;/span&gt; taskapp/packages
+
+&lt;span class=&quot;c&quot;&gt;# Add files from source to the current directory and publish the deployment files to the folder profile&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; . .&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /src/taskapp/taskapp&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;msbuild taskapp.csproj /p:Configuration&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;Release /m /p:DeployOnBuild&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;true&lt;/span&gt; /p:PublishProfile&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;FolderProfile
+
+&lt;span class=&quot;c&quot;&gt;# Layer the production runtime image&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; mcr.microsoft.com/dotnet/framework/aspnet:4.8-windowsservercore-ltsc2019 as deploy&lt;/span&gt;
+
+&lt;span class=&quot;c&quot;&gt;# Add the publish files into the right directory&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /inetpub/wwwroot&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; --from=build /src/taskapp/taskapp/bin/Release/Publish .&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;net-core&quot;&gt;.NET Core&lt;/h3&gt;
+
+&lt;p&gt;For .NET Core, the nano server base image must be “1809” to be compatible with what Azure currently supports.  Keep in mind this may change in the future.&lt;/p&gt;
+
+&lt;div class=&quot;language-dockerfile highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c&quot;&gt;# Set the base image&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; mcr.microsoft.com/dotnet/core/aspnet:3.1-nanoserver-1809 AS base&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /app&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;EXPOSE&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; 80&lt;/span&gt;
+
+&lt;span class=&quot;c&quot;&gt;# Add the sdk so you can run the dotnet restore and build commands&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; mcr.microsoft.com/dotnet/core/sdk:3.1-nanoserver-1809 AS build&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /src&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; *.csproj ./&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;dotnet restore &lt;span class=&quot;s2&quot;&gt;&quot;taskapp.csproj&quot;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; . .&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; &quot;/src&quot;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;dotnet build &lt;span class=&quot;s2&quot;&gt;&quot;taskapp.csproj&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-c&lt;/span&gt; Release &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; /app/build
+
+&lt;span class=&quot;c&quot;&gt;# Create the publish files&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; build AS publish&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;RUN &lt;/span&gt;dotnet publish &lt;span class=&quot;s2&quot;&gt;&quot;taskapp.csproj&quot;&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;-c&lt;/span&gt; Release &lt;span class=&quot;nt&quot;&gt;-o&lt;/span&gt; /app/publish
+
+&lt;span class=&quot;c&quot;&gt;# Copy the publish files into the container&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;FROM&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; base AS final&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;WORKDIR&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; /app&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;COPY&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; --from=publish /app/publish .&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;ENTRYPOINT&lt;/span&gt;&lt;span class=&quot;s&quot;&gt; [&quot;dotnet&quot;, &quot;taskapp.dll&quot;]&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;create-the-github-workflow&quot;&gt;Create the GitHub Workflow&lt;/h2&gt;
+
+&lt;p&gt;Now that we have our resources created, secrets secured, and dockerfile in order we can start building our workflow file for continuous deployment. The workflow file is a yaml file in &lt;code class=&quot;highlighter-rouge&quot;&gt;.github/workflows/&lt;/code&gt;. It contains a collection of actions that run when triggered. Add the workflow file by going to the &lt;em&gt;Actions&lt;/em&gt; tab in your repository and click &lt;em&gt;Set up a workflow yourself&lt;/em&gt;.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/githubactions_1.jpg&quot; alt=&quot;ghactions&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;After choosing this option, you will see a starter worklfow that explains how GitHub Actions work.  If you are new to this I recommend you read the comments, but we won’t be needing any of the starting code so you can remove it.&lt;/p&gt;
+
+&lt;h3 id=&quot;add-the-workflow-trigger&quot;&gt;Add the workflow trigger&lt;/h3&gt;
+
+&lt;p&gt;First, specify the trigger that starts the workflow. For our example, we are simply triggering the build whenever there is a push into the master branch If you would like to change this behavior, there are &lt;a href=&quot;https://help.github.com/en/actions/reference/events-that-trigger-workflows&quot;&gt;many other triggers&lt;/a&gt; for Github Actions.&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and Deploy Windows Container App to Azure App Service&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Trigger the build on commits into the master branch&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;push&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;branches&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+      &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;master&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Starts jobs and sets the type of runner (Windows) they will run on&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;jobs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;build-and-deploy-to-azure&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;runs-on&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;windows-latest&lt;/span&gt;
+
+    &lt;span class=&quot;na&quot;&gt;steps&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;# Checks out repository so your workflow can access it&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;actions/checkout@v1&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;log-into-your-container-registry&quot;&gt;Log into your container registry&lt;/h3&gt;
+
+&lt;p&gt;In order for the workflow to access our registry, we need to add our &lt;a href=&quot;https://github.com/azure/docker-login&quot;&gt;Docker login action&lt;/a&gt;. This action can login to both Azure Container Registry or Docker Hub. If logging into Docker Hub, you can get away with not using the &lt;code class=&quot;highlighter-rouge&quot;&gt;login-server&lt;/code&gt; parameter.  If using ACR, you can grab the server name, username, and password from the &lt;em&gt;Access Keys&lt;/em&gt; tab in your Azure Container Registry Resource.&lt;/p&gt;
+
+&lt;p&gt;Add the following secrets if you have not already:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;CONTAINER_REGISTRY_USERNAME&lt;/code&gt;: Your container registry username&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;CONTAINER_REGISTRY_PASSWORD&lt;/code&gt;: Your container registry password&lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;CONTAINER_NAME&lt;/code&gt;: The hostname of the container registry (ACR only)&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/githubactions_2.jpg&quot; alt=&quot;ghactions&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h4 id=&quot;azure-container-registry&quot;&gt;Azure Container Registry&lt;/h4&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;# Use docker login to log into ACR&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Docker login to ACR&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;azure/docker-login@v1&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;login-server&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_NAME }}&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;username&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_USERNAME }}&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;password&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_PASSWORD }}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h4 id=&quot;docker-hub&quot;&gt;Docker Hub&lt;/h4&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;# Use docker login&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Docker Hub login&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;azure/docker-login@v1&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;username&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_USERNAME }}&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;password&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_PASSWORD }}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;build-and-push-image-to-registry&quot;&gt;Build and Push Image to Registry&lt;/h3&gt;
+
+&lt;p&gt;Next, we will add a command to build and push the container image to the registry. We are using the &lt;code class=&quot;highlighter-rouge&quot;&gt;$&lt;/code&gt; to tag the container with the commit id. This makes it easy to track what each image contains.&lt;/p&gt;
+
+&lt;p&gt;Add the following secrets if you have not already:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;IMAGE_NAME&lt;/code&gt;: The name of the image (can be any name)&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;CONTAINER_REGISTRY_NAME&lt;/code&gt;: The hostname of the container registry (ACR only)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;# Build and push the image to Container Registry&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and Push container to registry&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;run&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;|&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;docker build --file=taskapp/taskapp/Dockerfile -t ${{ secrets.CONTAINER_REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }} .&lt;/span&gt;
+    &lt;span class=&quot;s&quot;&gt;docker push ${{ secrets.CONTAINER_REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;authenticate-with-azure&quot;&gt;Authenticate with Azure&lt;/h3&gt;
+
+&lt;p&gt;In the &lt;a href=&quot;#Create-a-Service-Principal&quot;&gt;earlier section&lt;/a&gt; you created an Azure Service Principal and added it as a GitHub Secret. You can now add the &lt;a href=&quot;https://github.com/azure/login&quot;&gt;Azure login action&lt;/a&gt; to the workflow. This action will use the Service Principal to authenticate with Azure.&lt;/p&gt;
+
+&lt;p&gt;Add the following secrets if you have not already:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;AZURE_CREDENTIALS&lt;/code&gt;: The output of the earlier command that generated the Service Principal&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Azure Service Principal Authentication&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;azure/login@v1&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;creds&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.AZURE_CREDENTIALS }}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;deploy-to-azure-app-service&quot;&gt;Deploy to Azure App Service&lt;/h3&gt;
+
+&lt;p&gt;If you haven’t already created your App Service, now is the time to do so before you can proceed. Remember that Windows Containers deployment is only available on the Premium tier App Service Plans.  Be mindful of the tier capacity, as you may need to scale up if your container is too large.&lt;/p&gt;
+
+&lt;p&gt;The final step to setting up the continuous deployment is to add the webapps container deploy action.&lt;/p&gt;
+
+&lt;p&gt;Add the following secrets if you have not already:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;APP_NAME&lt;/code&gt;: The webapp name&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;CONTAINER_REGISTRY_NAME&lt;/code&gt;: The container registry name&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;IMAGE_NAME&lt;/code&gt;: The name of the container image&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy Container to Azure App Service&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;azure/webapps-container-deploy@v1&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;app-name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.APP_NAME }}&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;images&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;deploy-to-azure-sql-database-optional&quot;&gt;Deploy to Azure SQL Database (Optional)&lt;/h2&gt;
+
+&lt;p&gt;Adding Azure SQL to the workflow is optional of course, as you might have other plans for storage.  To deploy your SQL database to Azure, you will use a &lt;a href=&quot;https://docs.microsoft.com/sql/relational-databases/data-tier-applications/data-tier-applications?view=sql-server-ver15#dac-concepts&quot;&gt;dacpac&lt;/a&gt; file or SQL scripts, and a connection string. The connection string can be found in the overview page of your Azure SQL database and you can create your dacpac by extracting the data using something like SQL Server Object Explorer in Visual Studio.&lt;/p&gt;
+
+&lt;p&gt;Add the following secrets if you have not already:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;DATABASE_SERVER_NAME&lt;/code&gt;: The resource name of the database&lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;AZURE_SQL_CONNECTION_STRING&lt;/code&gt;: The full connection string for the database&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/githubactions_5.jpg&quot; alt=&quot;ghactions&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Both your server name and connection string are found in the Azure database resource in the portal. Copy the connection string, making sure your password and user ID are correct, and paste into your GitHub secrets.&lt;/p&gt;
+
+&lt;h3 id=&quot;create-a-dacpac-file-in-your-project&quot;&gt;Create a dacpac file in your project&lt;/h3&gt;
+
+&lt;p&gt;As mentioned before, you’ll need to use either a dacpac file or set of SQL scripts to deploy your database schema.  If you are using Visual Studio, it’s easy to create and add the needed dacpac file to run the action.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;Connect your SQL Azure Database to Visual Studio&lt;/li&gt;
+  &lt;li&gt;Right-click the data base and choose &lt;em&gt;Extract Data-tier application&lt;/em&gt;&lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;On the following window, choose the location at the same level of your github workflow file and click create.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/githubactions_5.jpg&quot; alt=&quot;ghactions&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;# Deploy a dacpac file to a pre-provisioned Azure SQL Server&lt;/span&gt;
+&lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Azure SQL Deploy&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Azure/sql-action@v1&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;server-name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.DATABASE_SERVER_NAME }}.database.windows.net&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;connection-string&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.AZURE_SQL_CONNECTION_STRING }}&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;dacpac-package&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;./data.dacpac'&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Your dacpac file should have been created and added to your project. The action finds your file under the dacpac-package parameter seen above.&lt;/p&gt;
+
+&lt;h2 id=&quot;summary&quot;&gt;Summary&lt;/h2&gt;
+
+&lt;p&gt;From here you are setup to continuously build your Windows Container application through github actions. Below you’ll see the final result of the workflow yaml file.&lt;/p&gt;
+
+&lt;h3 id=&quot;full-workflow-file&quot;&gt;Full workflow file&lt;/h3&gt;
+
+&lt;p&gt;The previous sections showed how to assemble the workflow step-by-step. The full &lt;code class=&quot;highlighter-rouge&quot;&gt;main.yaml&lt;/code&gt; is below.&lt;/p&gt;
+
+&lt;div class=&quot;language-yaml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and Deploy Windows Container App to Azure App Service&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Trigger the build on commits into the master branch&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;push&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;branches&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+      &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;master&lt;/span&gt;
+
+&lt;span class=&quot;c1&quot;&gt;# Starts jobs and sets the type of runner (Windows) they will run on&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;jobs&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+  &lt;span class=&quot;na&quot;&gt;build-and-deploy-to-azure&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;na&quot;&gt;runs-on&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;windows-latest&lt;/span&gt;
+
+    &lt;span class=&quot;na&quot;&gt;steps&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;# Checks out repository so your workflow can access it&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;actions/checkout@v1&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;# Authenticate a Service Principal to deploy to your Web App&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Azure Service Principal Authentication&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;azure/login@v1&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+          &lt;span class=&quot;na&quot;&gt;creds&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.AZURE_CREDENTIALS }}&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;# Use docker login to log into ACR &lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Docker login to ACR&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;azure/docker-login@v1&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+       &lt;span class=&quot;c1&quot;&gt;# comment out the login-server parameter if using docker hub&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;login-server&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_NAME }}&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;username&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_USERNAME }}&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;password&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_PASSWORD }}&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;# Build and push your image to Azure Container Registry &lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Build and Push container to ACR&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;run&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;pi&quot;&gt;|&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;docker build --file=taskapp/taskapp/Dockerfile -t ${{ secrets.CONTAINER_REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }} .&lt;/span&gt;
+        &lt;span class=&quot;s&quot;&gt;docker push ${{ secrets.CONTAINER_REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}  &lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;# Deploy your container to App Service &lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Deploy Container to Azure App Service&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;azure/webapps-container-deploy@v1&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;app-name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.APP_NAME }}&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;images&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.CONTAINER_REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}&lt;/span&gt;
+
+    &lt;span class=&quot;c1&quot;&gt;# Deploy a dacpac file to your SQL server&lt;/span&gt;
+    &lt;span class=&quot;pi&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Azure SQL Deploy&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;uses&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;Azure/sql-action@v1&lt;/span&gt;
+      &lt;span class=&quot;na&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;server-name&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.DATABASE_SERVER_NAME }}&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;connection-string&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;${{ secrets.AZURE_SQL_CONNECTION_STRING }}&lt;/span&gt;
+        &lt;span class=&quot;na&quot;&gt;dacpac-package&lt;/span&gt;&lt;span class=&quot;pi&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;'&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;./data.dacpac'&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;helpful-resources&quot;&gt;Helpful Resources&lt;/h3&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Actions
+    &lt;ul&gt;
+      &lt;li&gt;&lt;a href=&quot;https://github.com/marketplace/actions/checkout&quot;&gt;Checkout Action&lt;/a&gt;&lt;/li&gt;
+      &lt;li&gt;&lt;a href=&quot;https://github.com/marketplace/actions/azure-login&quot;&gt;Azure Login Action&lt;/a&gt;&lt;/li&gt;
+      &lt;li&gt;&lt;a href=&quot;https://github.com/marketplace/actions/docker-login&quot;&gt;Docker Login Action&lt;/a&gt;&lt;/li&gt;
+      &lt;li&gt;&lt;a href=&quot;https://github.com/marketplace/actions/azure-sql-deploy&quot;&gt;Azure SQL Deploy Action&lt;/a&gt;&lt;/li&gt;
+      &lt;li&gt;&lt;a href=&quot;https://github.com/marketplace/actions/azure-webapp-container&quot;&gt;Azure WebApp Container Action&lt;/a&gt;&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;Other resources
+    &lt;ul&gt;
+      &lt;li&gt;&lt;a href=&quot;https://channel9.msdn.com/Events/Build/2020/BOD126/&quot;&gt;Build 2020 Session Covering GitHub Actions&lt;/a&gt;&lt;/li&gt;
+      &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/app-service/deploy-github-actions&quot;&gt;App Service Docs for GitHub Actions&lt;/a&gt;&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;</content><author><name>Azure App Service</name></author><category term="dotnet" /><category term="windows containers" /><summary type="html">Github Actions enables you to easily automate any part of your development workflow. GitHub Actions are defined as YAML files in the .github/workflows directory of your repository. The workflows are triggered by an event, such as a push to a specific branch, a commit or comment on a pull request, or on a CRON schedule.</summary></entry><entry><title type="html">.NET Framework 4.8 is coming to App Service</title><link href="https://azure.github.io/AppService/2020/06/09/NET-Framework-4.8-is-coming-to-App-Service.html" rel="alternate" type="text/html" title=".NET Framework 4.8 is coming to App Service" /><published>2020-06-09T00:00:00+00:00</published><updated>2020-06-09T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/06/09/NET%20Framework%204.8%20is%20coming%20to%20App%20Service</id><content type="html" xml:base="https://azure.github.io/AppService/2020/06/09/NET-Framework-4.8-is-coming-to-App-Service.html">&lt;blockquote&gt;
+  &lt;p&gt;The .NET Framework 4.8 update is a non-breaking in-place upgrade on App Service.  No updates are required to existing applications.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;An update is coming for App Service to support .NET Framework 4.8. You will soon be able to take advantage of the updated .NET Framework toolset, bug fixes, and key improvements in accessibility and runtime. For the full list of updates and changes see the &lt;a href=&quot;https://devblogs.microsoft.com/dotnet/announcing-the-net-framework-4-8/&quot;&gt;announcement&lt;/a&gt; and &lt;a href=&quot;https://github.com/microsoft/dotnet/blob/master/releases/net48/README.md&quot;&gt;release notes&lt;/a&gt;. The update will come to App Service starting in &lt;em&gt;July 14, 2020&lt;/em&gt; and completing by &lt;em&gt;September 15, 2020&lt;/em&gt;. In preparation for the platform upgrade to .NET Framework 4.8, customers can choose to test applications locally in advance.&lt;/p&gt;
+
+&lt;p&gt;To track progress during the deployment, we will be posting periodic updates &lt;a href=&quot;https://github.com/Azure/app-service-announcements/issues/249&quot;&gt;on this GitHub Issue&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;testing-your-applications-locally&quot;&gt;Testing your applications locally&lt;/h2&gt;
+
+&lt;p&gt;Test your application locally by completing the following steps:&lt;/p&gt;
+&lt;ol&gt;
+  &lt;li&gt;Download &amp;amp; install .NET Framework 4.8 for your appropriate scenario &lt;a href=&quot;https://devblogs.microsoft.com/dotnet/announcing-the-net-framework-4-8/&quot;&gt;here&lt;/a&gt;.&lt;/li&gt;
+  &lt;li&gt;Run your application in your local browser and verify the application features.&lt;/li&gt;
+  &lt;li&gt;If you have issues with your application, feedback can be given on &lt;a href=&quot;https://github.com/Microsoft/dotnet/issues/&quot;&gt;GitHub&lt;/a&gt;.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;—Optional steps if you plan to re-target your application in the future to explicitly require .NET Framework 4.8—&lt;/p&gt;
+&lt;ol&gt;
+  &lt;li&gt;If you choose to re-target your application to 4.8 in the future:
+    &lt;ol&gt;
+      &lt;li&gt;Review the &lt;a href=&quot;https://docs.microsoft.com/dotnet/framework/migration-guide/&quot;&gt;Migration Guide&lt;/a&gt; for &lt;a href=&quot;https://docs.microsoft.com/dotnet/framework/migration-guide/runtime/4.7.2-4.8&quot;&gt;Runtime changes&lt;/a&gt; and &lt;a href=&quot;https://docs.microsoft.com/dotnet/framework/migration-guide/retargeting/4.7.2-4.8&quot;&gt;Retargeting Guide&lt;/a&gt; for application compatibility issues that may affect your application.&lt;/li&gt;
+      &lt;li&gt;Re-test your application in your local browser and verify the application features.&lt;/li&gt;
+    &lt;/ol&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&quot;confirming-the-update-on-app-service&quot;&gt;Confirming the update on App Service&lt;/h2&gt;
+
+&lt;p&gt;You can confirm your webapp’s current .NET Framework version by following these quick steps.&lt;/p&gt;
+
+&lt;p&gt;To see if your apps have been updated after we begin the platform update, check which .NET Framework version is in use by using the console.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;Open the &lt;strong&gt;Console&lt;/strong&gt; feature under &lt;strong&gt;Development Tools&lt;/strong&gt; in the App Service blade of your Azure Portal.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/console.png&quot; alt=&quot;console&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Run the following command: &lt;code class=&quot;highlighter-rouge&quot;&gt;cd &quot;\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework&quot;&lt;/code&gt;.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Run the &lt;code class=&quot;highlighter-rouge&quot;&gt;dir&lt;/code&gt; command to list out the installed versions of .NET Framework.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/06/console2.png&quot; alt=&quot;console&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;If .NET Framework 4.8 is installed, it will be located at &lt;code class=&quot;highlighter-rouge&quot;&gt;D:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8&lt;/code&gt;&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;</content><author><name>Azure App Service</name></author><category term="dotnet" /><summary type="html">The .NET Framework 4.8 update is a non-breaking in-place upgrade on App Service. No updates are required to existing applications.</summary></entry><entry><title type="html">App Service //Build 2020 Recap</title><link href="https://azure.github.io/AppService/2020/05/19/App-Service-Build-2020-recap.html" rel="alternate" type="text/html" title="App Service //Build 2020 Recap" /><published>2020-05-19T00:00:00+00:00</published><updated>2020-05-19T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/05/19/App%20Service%20Build%202020%20recap</id><content type="html" xml:base="https://azure.github.io/AppService/2020/05/19/App-Service-Build-2020-recap.html">&lt;p&gt;This year, &lt;a href=&quot;https://mybuild.microsoft.com/&quot;&gt;Microsoft Build&lt;/a&gt; is entirely online. Live and pre-recorded sessions are available for anyone to view. This article is a recap of the sessions from the App Service team, along with links to more information.&lt;/p&gt;
+
+&lt;h2 id=&quot;building-and-managing-net-core-with-app-service&quot;&gt;Building and Managing .NET Core with App Service&lt;/h2&gt;
+
+&lt;p&gt;&lt;em&gt;Building web apps with .NET Core? Check out the latest from the App Service team including how to build a continuous delivery pipeline using GitHub Actions, how to use Event Grid to subscribe and act on deployment events and how to monitor your production apps with Health Checks.&lt;/em&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;&lt;a href=&quot;https://channel9.msdn.com/Events/Build/2020/BOD126/player&quot;&gt;Watch the session here&lt;/a&gt;&lt;/strong&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;github-actions&quot;&gt;GitHub Actions&lt;/h3&gt;
+
+&lt;p&gt;GitHub Actions is a flexible automation framework that allows developers to (among other things) continuously deploy their applications to App Service.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://github.com/Azure/webapps-deploy&quot;&gt;Webapps deploy Action&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://github.com/azure/actions&quot;&gt;GitHub Actions for Azure&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://github.com/marketplace?type=actions&quot;&gt;GitHub Actions Marketplace&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;app-service-health-checks&quot;&gt;App Service Health Checks&lt;/h3&gt;
+
+&lt;p&gt;App Service Health Checks will automatically remove and restart unhealthy instances of your application when you are scaled out.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://github.com/projectkudu/kudu/wiki/Health-Check-(Preview)&quot;&gt;Documentation&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;event-grid-integration&quot;&gt;Event Grid Integration&lt;/h3&gt;
+
+&lt;p&gt;Event Grid is a high performance publish/subscribe messaging system. App Service now emits events that can be handled with Functions, Logic Apps, and more.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://azure.github.io/AppService/2020/05/11/event-grid-integration.html&quot;&gt;Getting started guide&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/event-grid/overview&quot;&gt;Event Grid overview&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/event-grid/compare-messaging-services&quot;&gt;Comparison of Azure messaging services&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;migrate-applications-to-azure-app-service&quot;&gt;Migrate Applications to Azure App Service&lt;/h2&gt;
+
+&lt;p&gt;See how Azure is making it easy to quickly get your application running on App Service. We’ll show you how to use Migration Assistant for moving IIS sites and Linux containers to the cloud.&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://mybuild.microsoft.com/sessions/737d89e2-4255-4017-89df-2aa2adf9e348&quot;&gt;Watch the session here&lt;/a&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;faq&quot;&gt;FAQ&lt;/h2&gt;
+
+&lt;p&gt;Many of you attended our “Ask the Experts” live session and sent us your questions. Here are some common questions you asked, along with their answers.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;strong&gt;Can you use LetsEncrypt certificates with Azure App Services?&lt;/strong&gt; You’re still able to use Let’s Encrypt certs with App Service, however there is no official support when it comes to integrating it with auto-renew. We have &lt;a href=&quot;https://azure.microsoft.com/updates/secure-your-custom-domains-at-no-cost-with-app-service-managed-certificates-preview/&quot;&gt;App Service Managed Certificates&lt;/a&gt;, which is our free certificate offering that supports auto-renew. This feature is currently in preview and only currently supports CNAME Records. &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/configure-ssl-certificate#create-a-free-certificate-preview&quot;&gt;Documentation&lt;/a&gt;.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;What is the status for App Service Managed Certificates supporting apex/naked domains?&lt;/strong&gt; This is the next milestone for this feature that we are currently working on. We don’t have an ETA to provide as of now.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;Is it a good strategy to use deployment slots to define environments (eg. myapp, myapp/uat, myapp/qa) or would it be better to have different resources for each environment? Would it affect the performance of the main prod “myapp” service?&lt;/strong&gt; You can certainly use slots to stage your test, QA, and other environments. This works especially well if your team uses the Gitflow branching strategy, as each branch can be &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/deploy-best-practices#use-deployment-slots&quot;&gt;continuously deployed to a staging slot&lt;/a&gt;. If you are worried about the extra slots consuming too many resources, you can actually host the production slot on it’s own, independent App Service Plan.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;What is the status for the different logs with the Azure Monitor integration?&lt;/strong&gt; We will be releasing AppServiceAppLogs for Windows soon – estimating the next two/three months. We don’t have an ETA for the other logs as of now.&lt;/li&gt;
+&lt;/ul&gt;</content><author><name>Azure App Service</name></author><summary type="html">This year, Microsoft Build is entirely online. Live and pre-recorded sessions are available for anyone to view. This article is a recap of the sessions from the App Service team, along with links to more information.</summary></entry><entry><title type="html">The Ultimate Guide to Running Healthy Apps in the Cloud</title><link href="https://azure.github.io/AppService/2020/05/15/Robust-Apps-for-the-cloud.html" rel="alternate" type="text/html" title="The Ultimate Guide to Running Healthy Apps in the Cloud" /><published>2020-05-15T00:00:00+00:00</published><updated>2020-05-15T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/05/15/Robust%20Apps%20for%20the%20cloud</id><content type="html" xml:base="https://azure.github.io/AppService/2020/05/15/Robust-Apps-for-the-cloud.html">&lt;p&gt;Modern-day data centers are extremely complex and have many moving parts. VMs can restart or move, systems are upgraded, and file servers are scaled up and down. All these events are to be expected in a cloud environment. However, you can make your cloud application resilient to these events by following best practices. This document outlines 13 crucial steps that you can take to ensure that your app is cloud ready. By taking these steps, you will ensure that any events in the data center will have negligible effects on your app and that your app will be more resilient and future proof.&lt;/p&gt;
+
+&lt;p&gt;As mentioned above, your instances are expected to and will restart. They will be upgraded and will sometimes suffer from file server movements. However you can make your app resilient to all these incidents. In order to guarantee the maximum uptime for your app, &lt;strong&gt;please ensure that you follow all practices&lt;/strong&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;use-multiple-instances&quot;&gt;Use Multiple Instances&lt;/h2&gt;
+
+&lt;p&gt;Running your app on only one VM instance is an immediate single point-of-failure. By ensuring that you have multiple instances allocated to your app, if something goes wrong with any particular instance, your app will still be able to respond to requests going to the other instances. Keep in mind that your &lt;strong&gt;app code should be able to handle multiple instances&lt;/strong&gt; without synchronization issues when reading from or writing to data sources. You can allocate multiple instances to your app using the “Scale out (App Service Plan)” blade:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/multiple-instances.png&quot; alt=&quot;multiple-instances&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;To avoid a single point-of-failure, run your app with &lt;strong&gt;at least 2-3 instances&lt;/strong&gt;. This is especially important if your app takes considerable time to start (known as cold start). Running more than one instance ensures that your application is available when App Service moves or upgrades the underlying VM instances. You can also configure rules to automatically scale out based on predefined rules such as:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Time of day (when the app has the most traffic)&lt;/li&gt;
+  &lt;li&gt;Resource utilization (memory, CPU, etc.)&lt;/li&gt;
+  &lt;li&gt;A combination of both!&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/azure-monitor/platform/autoscale-get-started?toc=/azure/app-service/toc.json&quot;&gt;Get started with Autoscale in Azure&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://michaelcandido.com/app-service-warm-up-demystified/&quot;&gt;App Service Warm-Up Demystified&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;update-your-default-settings&quot;&gt;Update your default settings&lt;/h2&gt;
+
+&lt;p&gt;App Service has many settings for developers to configure the web app to their use case. &lt;strong&gt;Always-On&lt;/strong&gt; keeps your VM instances alive even when no requests have been received in the last 20 minutes. By default, Always-On is disabled; enabling Always-On will limit application cold starts. &lt;strong&gt;ARR Affinity&lt;/strong&gt; creates sticky sessions so that clients will connect to the same app instance on subsequent requests. However, ARR Affinity can cause unequal distribution of requests between your instances and possibly overload an instance. For production apps that are aiming to be robust, it is recommended to set &lt;strong&gt;Always on to On&lt;/strong&gt; and &lt;strong&gt;ARR Affinity to Off&lt;/strong&gt;. Disabling ARR Affinity assumes that your application is either stateless, or the session state is stored on a remote service such as a cache or database.&lt;/p&gt;
+
+&lt;p&gt;You can change these settings in the configurations section of the Azure Portal, under the &lt;em&gt;General Settings&lt;/em&gt; tab:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/alwayson.jpg&quot; alt=&quot;alwayson&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/app-service/configure-common#configure-general-settings&quot;&gt;Configure an App Service app in the Azure portal&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://azure.github.io/AppService/2016/05/16/Disable-Session-affinity-cookie-(ARR-cookie)-for-Azure-web-apps.html&quot;&gt;Disable Session affinity cookie (ARR cookie) for Azure web apps&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;use-production-hardware&quot;&gt;Use Production Hardware&lt;/h2&gt;
+
+&lt;p&gt;App Service offers a variety of hardware tiers (also known as SKUs) to suit different customer needs. When creating a new App Service Plan, you have an option to select a different hardware tier for your plan:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/pricing.jpg&quot; alt=&quot;pricing&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;If your App Service Plan is used for production, please ensure that your App Service Plan is running on one of the recommended “production” pricing tiers. Moreover, if your application is resource intensive, make sure to select the appropriate pricing tier within the recommended ones according to the need of your app. For example, if your application consumes a lot of CPU cycles, running on an S1 pricing tier will not be ideal as it could potentially cause high CPU that would cause downtime or slowness on your app.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/app-service/manage-scale-up&quot;&gt;Scale up an app in Azure App Service&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;leverage-deployment-slots&quot;&gt;Leverage Deployment Slots&lt;/h2&gt;
+
+&lt;p&gt;Before deploying your new code to production, you can leverage the Deployment Slots feature in App Services to test your changes. Deployment slots are live apps with their own host names. App content and configurations elements can be swapped between two deployment slots, including the production slot.&lt;/p&gt;
+
+&lt;p&gt;Deploying your application to a non-production slot has the following benefits:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;You can validate app changes in a staging environment before swapping it into the production slot.&lt;/li&gt;
+  &lt;li&gt;Deploying an app to a slot first and swapping it into production makes sure that all instances of the staging slot are warmed up before swapping into production. This eliminates downtime when you deploy your app. The traffic redirection is seamless, and no requests are dropped because of swap operations. You can automate this entire workflow by configuring auto swap.&lt;/li&gt;
+  &lt;li&gt;After a swap, the slot with previously staged app now has the previous production app. If the changes swapped into the production slot aren’t as you expect, you can perform the same swap immediately to get your “last known good site” back.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/slots.jpg&quot; alt=&quot;slots&quot; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;Please note that Deployment Slots are only available for Standard, Premium, or Isolated App Service plan tiers&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;We highly recommend using &lt;strong&gt;Swap with Preview&lt;/strong&gt;. Swap with Preview allows you to test the app in your staging slots against your production settings and also warm up the app. After doing your tests and warming up all the necessary paths, you can then complete the swap and the app will start receiving production traffic &lt;strong&gt;without restarting&lt;/strong&gt;. This has a high impact on your app’s availability &amp;amp; performance.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/app-service/deploy-staging-slots&quot;&gt;Set up staging environments in Azure App Service&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://ruslany.net/2015/10/azure-web-app-deployment-slot-swap-with-preview/&quot;&gt;Azure Web App Deployment Slot Swap with Preview&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/app-service/deploy-best-practices#use-deployment-slots&quot;&gt;Deployment best practices&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;set-your-health-check-path&quot;&gt;Set your Health Check path&lt;/h2&gt;
+
+&lt;p&gt;App Service allows you to specify a health check path on your apps. The platform pings this path to determine if your application is healthy and responding to requests. When your site is scaled out to multiple instances, App Service will exclude any unhealthy instance(s) from serving requests, improving your overall availability. Your app’s health check path should poll the critical components of your application, such as your database, cache, or messaging service. This ensures that the status returned by the health check path is an accurate picture of the overall health of your application.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;Go to &lt;em&gt;Development Tools&lt;/em&gt; &amp;gt; &lt;em&gt;Resource Explorer&lt;/em&gt; on the web app blade for Azure portal:&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/health-check-1.jpg&quot; alt=&quot;health-check-1&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;On the resource explorer page, expand the “config” section and click the “web” tab. Add an element with the name, “healthCheckPath”, and value is the path of your health-check url that our service will ping.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/health-check-2.png&quot; alt=&quot;health-check-2&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;Please note that the Health Check feature works only when you have two or more instances, which is a &lt;strong&gt;very&lt;/strong&gt; strong recommendation. For a single instance web app, the traffic is never blocked even if that single instance is encountering issues.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://github.com/projectkudu/kudu/wiki/Health-Check-(Preview)&quot;&gt;Health Check (Preview)&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;use-application-initialization&quot;&gt;Use Application Initialization&lt;/h2&gt;
+
+&lt;p&gt;Application Initialization ensures that your app instances have fully started before they are added to they start serving requests. Application Initialization is used during site restarts, auto scaling, and manual scaling. This is a critical feature where hitting the site’s root path is not sufficient to start the application. For this purpose a warm-up path must be created on the app which should be unauthenticated and App Init should be configured to use this url path.&lt;/p&gt;
+
+&lt;p&gt;Try to make sure that the method implemented by the warm-up url takes care of touching the functions of all important routes and it returns a response only when warm-up is complete. The site will be put into production only when it returns a response (success or failure) and app initialization will assume “everything is fine with the app”. App Initialization can be configured for your app within web.config file.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://ruslany.net/2015/09/how-to-warm-up-azure-web-app-during-deployment-slots-swap/&quot;&gt;How to warm up Azure Web App during deployment slots swap&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;enable-local-cache&quot;&gt;Enable Local Cache&lt;/h2&gt;
+
+&lt;p&gt;When this feature is enabled, the site content is read, written from the local virtual machine instance instead of fetching from Azure storage (where site content is stored). This will reduce the number of recycles required for the app. It can be enabled through Azure portal from the “General -&amp;gt; Application settings”. On this page under the App settings section add &lt;code class=&quot;highlighter-rouge&quot;&gt;WEBSITE_LOCAL_CACHE_OPTION&lt;/code&gt; as key and &lt;code class=&quot;highlighter-rouge&quot;&gt;&quot;Always&quot;&lt;/code&gt; as value. Also add the &lt;code class=&quot;highlighter-rouge&quot;&gt;WEBSITE_LOCAL_CACHE_SIZEINMB&lt;/code&gt; with a desired local cache size value up to 2000MB (if not provided, it defaults to 300 MB). It helps to provide the cache size specially when the site contents are more than 300 MB. Ensure that site contents are less than 2000MB for this feature to work. Also it is a good practice to keep it as a slot setting so that it does not get removed with a swap.
+&lt;strong&gt;The most important thing to keep in mind here&lt;/strong&gt; is that app should not be doing local disk writes for state persistence of its data/transactions.
+External storage like storage containers, db or cosmosDB should be used for storage purposes.&lt;/p&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;Please note that the behavior of Local Cache depends on the language and CMS you are using. For best results, we recommend using it for .net and .netcore apps as long as local writes are not being done by the app.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/local-cache.png&quot; alt=&quot;multiple-instances&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/local-cache-2.png&quot; alt=&quot;multiple-instances&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/en-us/azure/app-service/overview-local-cache&quot;&gt;Azure App Service Local Cache overview&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;auto-heal&quot;&gt;Auto Heal&lt;/h2&gt;
+
+&lt;p&gt;Sometimes your application might experience unexpected behaviors that could be resolved by a simple restart. The Auto Heal features allows you to do exactly that! It allows you to define the ‘condition’ that would trigger Auto Heal and the ‘action’ that Auto Heal will initiate when the condition is met.&lt;/p&gt;
+
+&lt;p&gt;You can create an auto heal mitigation rule by going to “Diagnose and Solve problems” section -&amp;gt; “Diagnostic Tools” tile and then “Auto Healing” under Proactive Tools section.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/autoheal.jpg&quot; alt=&quot;multiple-instances&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Below are example filter values to set up, however if some other value of error code and frequency suits your application, please modify accordingly:&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;Condition&lt;/th&gt;
+      &lt;th&gt;Value&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Request Count&lt;/td&gt;
+      &lt;td&gt;70&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Status Code&lt;/td&gt;
+      &lt;td&gt;500&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Sub-status code&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Win32-status code&lt;/td&gt;
+      &lt;td&gt;0&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;Frequency in seconds&lt;/td&gt;
+      &lt;td&gt;60&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;Once the condition above is met, we recommend configuring an action to:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Recycle Process&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;and add an ‘Override when Action Executes’:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Startup Time for process before auto heal executes: 3600 seconds (1 hour)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://stack247.wordpress.com/2019/05/20/azure-app-service-auto-healing/&quot;&gt;Azure App Service Auto-Healing&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://azure.github.io/AppService/2018/09/10/Announcing-the-New-Auto-Healing-Experience-in-App-Service-Diagnostics.html&quot;&gt;Announcing the New Auto Healing Experience in App Service Diagnostics&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;minimize-app-service-plan-density&quot;&gt;Minimize App Service Plan Density&lt;/h2&gt;
+
+&lt;p&gt;Ensure not more than 8 apps are running on the app service plan to ensure healthy performance. All the apps running on the app service plan can be seen on “Apps” under “Settings” section in your app service plan on azure portal.&lt;/p&gt;
+
+&lt;p&gt;Learn more about App Service Plan Density Check here:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://azure.github.io/AppService/2019/05/21/App-Service-Plan-Density-Check.html&quot;&gt;App Service Plan Density Check&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;monitor-disk-space-usage&quot;&gt;Monitor Disk Space usage&lt;/h2&gt;
+
+&lt;p&gt;Ensure that the disk space used by www folder should be less than 1GB. It is a very healthy practice in reducing downtime during app restarts and hence improve the application performance. File system usage can be tracked from “App Service Plan -&amp;gt; Quotas” section in Azure portal.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/diskusage.png&quot; alt=&quot;disk-usage&quot; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;enable-application-insights&quot;&gt;Enable Application Insights&lt;/h2&gt;
+
+&lt;p&gt;Application Insights offers a suite of features that empower you to troubleshoot incidents that happen on your app. You can use it to debug code errors, diagnose performance degradations caused by dependencies and more.&lt;/p&gt;
+
+&lt;p&gt;One of the powerful features of Application Insights is the App Insights Profiler. Enabling Application Insights Profiler provides you with performance traces for your applications that are running in production in Azure. Profiler captures the data automatically at scale without negatively affecting your users. Profiler helps you identify the “hot” code paths that take the longest when handling a web request. Profiler works with .NET applications. To enable it, go to your Application Insights in Azure portal. Click on Performance under Investigate.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;In the Performance pane click on “Configure Profiler”&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/aiprofiler-1.jpg&quot; alt=&quot;ai-1&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;In the pane that opens after that, click on “Profile Now” to start profiling.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/aiprofiler-2.jpg&quot; alt=&quot;ai-2&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;When Profiler is running, it profiles randomly about once per hour and for a duration of two minutes. If your application is handling a steady stream of requests, Profiler uploads traces every hour. 
+To view traces, in the Performance pane, select Take Actions, and then select the Profiler Traces button.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/aiprofiler-3.jpg&quot; alt=&quot;ai-3&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;App Insights also allows you to track dependencies in your application. You can leverage this feature to troubleshoot slow requests. To automatically track dependencies from .NET console apps, install the Nuget package &lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.ApplicationInsights.DependencyCollector&lt;/code&gt;, and initialize &lt;code class=&quot;highlighter-rouge&quot;&gt;DependencyTrackingTelemetryModule&lt;/code&gt; as follows:&lt;/p&gt;
+
+    &lt;div class=&quot;language-c# highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; &lt;span class=&quot;n&quot;&gt;DependencyTrackingTelemetryModule&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;depModule&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;DependencyTrackingTelemetryModule&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+ &lt;span class=&quot;n&quot;&gt;depModule&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;Initialize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;TelemetryConfiguration&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Active&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;    &lt;/div&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Each request event is associated with the dependency calls, exceptions, and other events that are tracked while your app is processing the request. So if some requests are doing badly, you can find out whether it’s because of slow responses from a dependency. You can see a waterfall view of the requests in the performance blade as well under the “Dependencies” tab:&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/dependency.jpg&quot; alt=&quot;ai-4&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;You can also leverage our newly released &lt;a href=&quot;https://azure.github.io/AppService/2020/04/21/Announcing-Application-Insights-Integration-with-App-Service-Diagnostics.html&quot;&gt;App Insights integration with App Service Diagnostics&lt;/a&gt;, discussed in details here:&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/azure-monitor/app/profiler-overview&quot;&gt;Profile production applications in Azure with Application Insights&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/azure-monitor/app/asp-net-exceptions&quot;&gt;Diagnose exceptions in your web apps with Application Insights&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/azure-monitor/app/asp-net-dependencies#diagnosis&quot;&gt;Dependency Tracking in Azure Application Insights&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;deploy-in-multiple-regions&quot;&gt;Deploy in Multiple Regions&lt;/h2&gt;
+
+&lt;p&gt;You can deploy Azure Front Door or Azure Traffic Manager to intercept traffic before they hit your site. They help in routing &amp;amp; distributing traffic between your instances/regions. In the event that a catastrophic incident happens in one of the Azure Datacenters, you can still guarantee that your app will run and serve requests by investing in one of them. 
+&lt;br /&gt;
+There are additional benefits to using Front Door or Traffic Manager, such as routing incoming requests based the customers’ geography to provide the shortest respond time to customers and distribute the load among your instances in order not to overload one of them with requests.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Learn More&lt;/strong&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/en-us/azure/app-service/web-sites-traffic-manager&quot;&gt;Controlling Azure App Service traffic with Azure Traffic Manager&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/en-us/azure/frontdoor/quickstart-create-front-door&quot;&gt;Quickstart: Create a Front Door for a highly available global web application&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;check-app-service-diagnostics&quot;&gt;Check App Service Diagnostics&lt;/h2&gt;
+
+&lt;p&gt;Finally, you can check the progress you’ve accomplished in making your app resilient by leverage the “Best Practices” detectors available in App Service Diagnostics here:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/04/bestpractices.jpg&quot; alt=&quot;bestpractices&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;You’ll be presented by 2 options:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Best Practices for Availability &amp;amp; Performance&lt;/li&gt;
+  &lt;li&gt;Best Practices for Optimal Configuration&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;We recommend that you follow all the best practices listed in those detectors and get them all to green!&lt;/p&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;Finally, we also recommend that you take a look at the &lt;a href=&quot;https://docs.microsoft.com/en-us/azure/architecture/patterns/&quot;&gt;Cloud Design Patterns&lt;/a&gt; document to minimize the application start time and follow more resiliency recommendations.&lt;/p&gt;
+
+&lt;p&gt;Feel free to post any questions about App Resiliency on the &lt;a href=&quot;https://social.msdn.microsoft.com/forums/azure/en-US/home?forum=windowsazurewebsitespreview&quot;&gt;MSDN Forum&lt;/a&gt;.&lt;/p&gt;</content><author><name>Azure App Service</name></author><category term="best practice" /><summary type="html">Modern-day data centers are extremely complex and have many moving parts. VMs can restart or move, systems are upgraded, and file servers are scaled up and down. All these events are to be expected in a cloud environment. However, you can make your cloud application resilient to these events by following best practices. This document outlines 13 crucial steps that you can take to ensure that your app is cloud ready. By taking these steps, you will ensure that any events in the data center will have negligible effects on your app and that your app will be more resilient and future proof.</summary></entry><entry><title type="html">App Service integration with Event Grid</title><link href="https://azure.github.io/AppService/2020/05/11/event-grid-integration.html" rel="alternate" type="text/html" title="App Service integration with Event Grid" /><published>2020-05-11T00:00:00+00:00</published><updated>2020-05-11T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/05/11/event-grid-integration</id><content type="html" xml:base="https://azure.github.io/AppService/2020/05/11/event-grid-integration.html">&lt;p&gt;We are happy to announce the Public Preview of App Service’s integration with Azure Event Grid. &lt;a href=&quot;https://docs.microsoft.com/azure/event-grid/overview&quot;&gt;Event Grid&lt;/a&gt; is a publish/subscribe messaging service that allows you to easily build event-based architectures. Event Grid is heavily integrated into Azure services, allowing you to react to events coming from your resources.&lt;/p&gt;
+
+&lt;p&gt;Follow &lt;a href=&quot;#get-started&quot;&gt;the quickstart&lt;/a&gt; below to get started!&lt;/p&gt;
+
+&lt;h2 id=&quot;integrated-events&quot;&gt;Integrated Events&lt;/h2&gt;
+
+&lt;p&gt;App Service now emits 13 events to Event Grid. These events span configuration changes, slot swaps, restarts, backups, and more. If you have an idea for an event type that you would like to see added, let us know on &lt;a href=&quot;https://feedback.azure.com/forums/169385-web-apps&quot;&gt;UserVoice&lt;/a&gt;.&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;
+    &lt;tr&gt;
+      &lt;th&gt;Event Type&lt;/th&gt;
+      &lt;th&gt;Description&lt;/th&gt;
+    &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.BackupOperationStarted&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/manage-backup&quot;&gt;backup&lt;/a&gt; has started&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.BackupOperationCompleted&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/manage-backup&quot;&gt;backup&lt;/a&gt; has completed&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.BackupOperationFailed&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/manage-backup&quot;&gt;backup&lt;/a&gt; has failed&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.RestoreOperationStarted&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/web-sites-restore&quot;&gt;restoration&lt;/a&gt; from a backup has started&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.RestoreOperationCompleted&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/web-sites-restore&quot;&gt;restoration&lt;/a&gt; from a backup has completed&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.RestoreOperationFailed&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/web-sites-restore&quot;&gt;restoration&lt;/a&gt; from a backup has failed&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.SlotSwapStarted&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/deploy-staging-slots&quot;&gt;slot swap&lt;/a&gt; has started&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.SlotSwapCompleted&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/deploy-staging-slots&quot;&gt;slot swap&lt;/a&gt; has completed&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.SlotSwapFailed&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/deploy-staging-slots&quot;&gt;slot swap&lt;/a&gt; has failed&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.SlotSwapWithPreviewStarted&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/deploy-staging-slots&quot;&gt;slot swap&lt;/a&gt; with preview has started&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.SlotSwapWithPreviewCancelled&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a &lt;a href=&quot;https://docs.microsoft.com/azure/app-service/deploy-staging-slots&quot;&gt;slot swap&lt;/a&gt; with preview has been cancelled&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/sites.AppUpdated&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when a site has been restarted, stopped, or the app settings have changed&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Microsoft.Web/serverfarms.AppServicePlanUpdated&lt;/code&gt;&lt;/td&gt;
+      &lt;td&gt;Triggered when an App Service Plan is updated&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;blockquote&gt;
+  &lt;p&gt;&lt;a href=&quot;https://aka.ms/event-grid-schema-app-service&quot;&gt;More information about these events&lt;/a&gt;.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h2 id=&quot;get-started&quot;&gt;Get started&lt;/h2&gt;
+
+&lt;p&gt;Event Grid is a flexible service that enables developers to architect cutting-edge, event-driven patterns. For example, you can &lt;a href=&quot;https://docs.microsoft.com/azure/event-grid/resize-images-on-storage-blob-upload-event?tabs=dotnet&quot;&gt;resize images uploaded to Azure Storage&lt;/a&gt;, or &lt;a href=&quot;https://docs.microsoft.com/azure/event-grid/monitor-virtual-machine-changes-event-grid-logic-app&quot;&gt;get an email when your VM scales up&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;This quickstart will walk through how to get started with a simple event handler, but we are excited to see what you can build with the newly integrated events from App Service.&lt;/p&gt;
+
+&lt;h3 id=&quot;create-a-function-with-an-event-grid-trigger&quot;&gt;Create a Function with an Event Grid trigger&lt;/h3&gt;
+
+&lt;p&gt;First, create a new Azure Function with an Event Grid trigger. If you do not already have a Function App in your subscription, follow &lt;a href=&quot;https://docs.microsoft.com/azure/azure-functions/functions-create-function-app-portal&quot;&gt;these instructions to create a new Function App&lt;/a&gt;. Once you have your Function App, browse to it in the Portal.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;In the list of Functions, select the “&lt;strong&gt;+&lt;/strong&gt;” to add a new Function.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;In the following screen, filter the triggers by searching for “event grid”. Select “Azure Event Grid trigger” and enter a name for the Function. Finally, click “Create”.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/05/event-grid/create-event-grid-triggered-function.png&quot; alt=&quot;Create an evet grid triggered function&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;add-the-function-as-an-endpoint&quot;&gt;Add the Function as an endpoint&lt;/h3&gt;
+
+&lt;p&gt;Now that the Event Grid triggered Function is created, we will add it as a handler for events from our Azure Webapp. Navigate to one of your Azure Webapps in the Portal.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;Select the “Events” button in the toolbar on the left side of the blade.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/05/event-grid/webapps-events-button.png&quot; alt=&quot;Webapps event button&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;This will open a new blade where you can register event handlers. If you have used Event Grid before with other Azure services, this blade will look familiar.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/05/event-grid/events-tab.png&quot; alt=&quot;Events page&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Click “+ Event Subscription” at the top of the blade. In the following screen, enter a name for the event subscription and select “Azure Function” as the Endpoint Type. Next, click “Select an endpoint” and find your Event Grid triggered Function using the filters in the context menu. Finally, click “Create”.&lt;/p&gt;
+
+    &lt;p&gt;&lt;img src=&quot;/AppService/media/2020/05/event-grid/events-subscription-form.png&quot; alt=&quot;events subscription form&quot; /&gt;&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;summary&quot;&gt;Summary&lt;/h3&gt;
+
+&lt;p&gt;You have now set up an Azure Function as an event handler for your Event Grid subscription. Whenever events are emitted from your web app, this Function will execute. Click back to the “Events” tab to see a timeline of your events.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/AppService/media/2020/05/event-grid/events-timeline.png&quot; alt=&quot;events timeline&quot; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&quot;next-steps&quot;&gt;Next steps&lt;/h2&gt;
+
+&lt;p&gt;This quickstart covered only a sliver of Event Grid’s capabilities. You can also use Logic Apps, Hybrid Connections, and web hooks as your event handlers. You can use these handlers to send yourself an email if a backup fails, send information to an on-premises resource, and much more!&lt;/p&gt;
+
+&lt;p&gt;If you have suggestions for events that App Service should emit, let us know on &lt;a href=&quot;https://feedback.azure.com/forums/169385-web-apps&quot;&gt;UserVoice&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&quot;helpful-links&quot;&gt;Helpful links&lt;/h2&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/event-grid/concepts&quot;&gt;Event Grid terminology&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/event-grid/compare-messaging-services&quot;&gt;Compare Azure messaging services&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure/event-grid/cli-samples&quot;&gt;Azure CLI for Event Grid&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://azure.microsoft.com/pricing/details/event-grid/&quot;&gt;Event Grid Pricing&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</content><author><name>Azure App Service</name></author><summary type="html">We are happy to announce the Public Preview of App Service’s integration with Azure Event Grid. Event Grid is a publish/subscribe messaging service that allows you to easily build event-based architectures. Event Grid is heavily integrated into Azure services, allowing you to react to events coming from your resources.</summary></entry><entry><title type="html">Azure App Service and Azure Functions on Azure Stack Hub 2020 Q2 Released</title><link href="https://azure.github.io/AppService/2020/05/06/App-Service-on-Azure-Stack-Hub-2020-Q2-Update-Released.html" rel="alternate" type="text/html" title="Azure App Service and Azure Functions on Azure Stack Hub 2020 Q2 Released" /><published>2020-05-06T00:00:00+00:00</published><updated>2020-05-06T00:00:00+00:00</updated><id>https://azure.github.io/AppService/2020/05/06/App%20Service%20on%20Azure%20Stack%20Hub%202020%20Q2%20Update%20Released</id><content type="html" xml:base="https://azure.github.io/AppService/2020/05/06/App-Service-on-Azure-Stack-Hub-2020-Q2-Update-Released.html">&lt;p&gt;We have released the 2020 Q2 update to Azure App Service on Azure Stack Hub. This release updates the resource provider and brings the following key capabilities and fixes:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Updates to &lt;strong&gt;App Service Tenant, Admin, Functions portals and Kudu tools&lt;/strong&gt;. Consistent with Azure Stack Portal SDK version.&lt;/li&gt;
+  &lt;li&gt;Updates &lt;strong&gt;Azure Functions&lt;/strong&gt; runtime to &lt;strong&gt;v1.0.13021&lt;/strong&gt;.&lt;/li&gt;
+  &lt;li&gt;Updates to core service to improve reliability and error messaging enabling easier diagnosis of common issues.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;Updates to the following application frameworks and tools&lt;/strong&gt;:
+    &lt;ul&gt;
+      &lt;li&gt;ASP.NET Framework 4.7.2&lt;/li&gt;
+      &lt;li&gt;ASP.NET Core 3.1.3&lt;/li&gt;
+      &lt;li&gt;ASP.NET Core Module v2 13.1.19331.0&lt;/li&gt;
+      &lt;li&gt;PHP 7.4.2&lt;/li&gt;
+      &lt;li&gt;Updated Kudu to 86.20224.4450&lt;/li&gt;
+      &lt;li&gt;NodeJS
+        &lt;ul&gt;
+          &lt;li&gt;8.17.0&lt;/li&gt;
+          &lt;li&gt;10.19.0&lt;/li&gt;
+          &lt;li&gt;12.13.0&lt;/li&gt;
+          &lt;li&gt;12.15.0&lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/li&gt;
+      &lt;li&gt;NPM
+        &lt;ul&gt;
+          &lt;li&gt;5.6.0&lt;/li&gt;
+          &lt;li&gt;6.1.0&lt;/li&gt;
+          &lt;li&gt;6.12.0&lt;/li&gt;
+          &lt;li&gt;6.13.4&lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;Updates to underlying operating system of all roles&lt;/strong&gt;:
+    &lt;ul&gt;
+      &lt;li&gt;&lt;a href=&quot;https://support.microsoft.com/help/4550929&quot;&gt;2020-04 Cumulative Update for Windows Server 2016 for x64-based Systems (KB4550929)&lt;/a&gt;&lt;/li&gt;
+      &lt;li&gt;&lt;a href=&quot;https://support.microsoft.com/help/4550994&quot;&gt;2020-04 Servicing Stack Update for Windows Server 2016 for x64-based Systems (KB4550994)&lt;/a&gt;&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;Cumulative Updates for Windows Server are now applied to Controller roles as part of deployment and upgrade&lt;/strong&gt;&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;&lt;strong&gt;Updated default Virtual Machine and Scale set skus for new deployments&lt;/strong&gt;:
+To maintain consistency with our public cloud service, new deployments of Azure App Service on Azure Stack Hub will use the following SKUs for the underlying machines and scale sets used to operate the resource provider&lt;/p&gt;
+
+    &lt;table&gt;
+      &lt;thead&gt;
+        &lt;tr&gt;
+          &lt;th&gt;Role&lt;/th&gt;
+          &lt;th&gt;Minimum SKU&lt;/th&gt;
+        &lt;/tr&gt;
+      &lt;/thead&gt;
+      &lt;tbody&gt;
+        &lt;tr&gt;
+          &lt;td&gt;Controller&lt;/td&gt;
+          &lt;td&gt;Standard_A4_v2 - (4 cores, 8192 MB)&lt;/td&gt;
+        &lt;/tr&gt;
+        &lt;tr&gt;
+          &lt;td&gt;Management&lt;/td&gt;
+          &lt;td&gt;Standard_D3_v2 - (4 cores, 14336 MB)&lt;/td&gt;
+        &lt;/tr&gt;
+        &lt;tr&gt;
+          &lt;td&gt;Publisher&lt;/td&gt;
+          &lt;td&gt;Standard_A2_v2 - (2 cores, 4096 MB)&lt;/td&gt;
+        &lt;/tr&gt;
+        &lt;tr&gt;
+          &lt;td&gt;FrontEnd&lt;/td&gt;
+          &lt;td&gt;Standard_A4_v2 - (4 cores, 8192 MB)&lt;/td&gt;
+        &lt;/tr&gt;
+        &lt;tr&gt;
+          &lt;td&gt;Shared Worker&lt;/td&gt;
+          &lt;td&gt;Standard_A4_v2 - (4 cores, 8192 MB)&lt;/td&gt;
+        &lt;/tr&gt;
+        &lt;tr&gt;
+          &lt;td&gt;Small dedicated worker&lt;/td&gt;
+          &lt;td&gt;Standard_A1_v2 - (1 core, 2048 MB)&lt;/td&gt;
+        &lt;/tr&gt;
+        &lt;tr&gt;
+          &lt;td&gt;Medium dedicated worker&lt;/td&gt;
+          &lt;td&gt;Standard_A2_v2 - (2 cores, 4096 MB)&lt;/td&gt;
+        &lt;/tr&gt;
+        &lt;tr&gt;
+          &lt;td&gt;Large dedicated worker&lt;/td&gt;
+          &lt;td&gt;Standard_A4_v2 - (4 cores, 8192 MB)&lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/tbody&gt;
+    &lt;/table&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;For ASDK deployments, you can scale the instances down to lower SKUs to reduce the core and memory commit but you will experience a performance degradation.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;All other fixes and updates are detailed in the App Service on Azure Stack Hub 2020 Q2 Release Notes&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The App Service on Azure Stack Hub Update 8 build number is &lt;strong&gt;87.0.2.10&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;Please review the release notes and all &lt;a href=&quot;https://docs.microsoft.com/azure-stack/operator/app-service-release-notes-2020-q2&quot;&gt;&lt;strong&gt;Known issues&lt;/strong&gt;&lt;/a&gt; prior to updating your installation of Azure App Service on Azure Stack Hub.&lt;/p&gt;
+
+&lt;h2 id=&quot;documentation-updates&quot;&gt;Documentation Updates&lt;/h2&gt;
+
+&lt;p&gt;All of the documentation for Azure App Service and Azure Functions on Azure Stack Hub has been reviewed and edited to support this release, to address feedback from customers and to improve the quality of the documentation to support cloud operators.  In addition the articles covering Azure App Service and Azure Functions on Azure Stack Hub have been reclassified under the table of contents to better classify the documentation and to maintain consistency with other resource providers on Azure Stack Hub:&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;![New documentation TOC structure for App Service on Azure Stack Hub](/AppService/media/2020/05/appservice_on_azure_stack_new_doc_toc.png)
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;You can download the new installer and helper scripts:&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://aka.ms/appsvcupdateq2installer&quot;&gt;Installer&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://aka.ms/appsvconmashelpers&quot;&gt;Helper Scripts&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Please read the updated documentation prior to getting started with deployment:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure-stack/operator/app-service-release-notes-2020-q2&quot;&gt;2020 Q2 Update Release Notes&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure-stack/operator/azure-stack-app-service-before-you-get-started&quot;&gt;Prerequisites for deploying App Service on Azure Stack Hub&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure-stack/operator/azure-stack-app-service-deploy&quot;&gt;Deploy the App Service Resource Provider&lt;/a&gt; for new deployments&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://docs.microsoft.com/azure-stack/operator/azure-stack-app-service-update&quot;&gt;Update the App Service Resource Provider&lt;/a&gt; for updating existing deployments&lt;/li&gt;
+&lt;/ul&gt;</content><author><name>Azure App Service</name></author><category term="Azure Stack" /><summary type="html">We have released the 2020 Q2 update to Azure App Service on Azure Stack Hub. This release updates the resource provider and brings the following key capabilities and fixes:</summary></entry></feed>
